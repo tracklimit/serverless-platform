@@ -205,10 +205,15 @@ func (d *KnativeDeployer) basePodSpec(fn *model.Function) corev1.PodSpec {
 		},
 	}
 
+	imagePullSecrets := []corev1.LocalObjectReference{
+		{Name: "ghcr-pull"},
+	}
+
 	if fn.DeployType == model.DeployTypeBYOI {
 		return corev1.PodSpec{
-			Tolerations: tolerations,
-			Affinity:    affinity,
+			Tolerations:      tolerations,
+			Affinity:         affinity,
+			ImagePullSecrets: imagePullSecrets,
 			Containers: []corev1.Container{
 				{Name: "user-function", Image: fn.Image},
 			},
@@ -217,8 +222,9 @@ func (d *KnativeDeployer) basePodSpec(fn *model.Function) corev1.PodSpec {
 
 	cmName := configMapName(fn.Name)
 	return corev1.PodSpec{
-		Tolerations: tolerations,
-		Affinity:    affinity,
+		Tolerations:      tolerations,
+		Affinity:         affinity,
+		ImagePullSecrets: imagePullSecrets,
 		Containers: []corev1.Container{
 			{
 				Name:  "user-function",
