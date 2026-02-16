@@ -15,30 +15,30 @@ try {
   process.exit(1);
 }
 
-const server = http.createServer(async (req, res) => {
-  const chunks = [];
-  for await (const chunk of req) {
-    chunks.push(chunk);
-  }
-  const body = Buffer.concat(chunks).toString("utf-8");
+const server = http.createServer((req, res) => {
+  let body = "";
+  req.on("data", (chunk) => {
+    body += chunk;
+  });
+  req.on("end", async () => {
+    const request = {
+      method: req.method,
+      path: req.url,
+      headers: req.headers,
+      body: body,
+    };
 
-  const request = {
-    method: req.method,
-    path: req.url,
-    headers: req.headers,
-    body: body,
-  };
-
-  try {
-    const result = await handlerFn(request);
-    const response = JSON.stringify(result);
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(response);
-  } catch (err) {
-    const error = JSON.stringify({ error: err.message });
-    res.writeHead(500, { "Content-Type": "application/json" });
-    res.end(error);
-  }
+    try {
+      const result = await handlerFn(request);
+      const response = JSON.stringify(result);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(response);
+    } catch (err) {
+      const error = JSON.stringify({ error: err.message });
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(error);
+    }
+  });
 });
 
 const port = process.env.PORT || 8080;
