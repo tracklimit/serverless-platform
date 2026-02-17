@@ -71,6 +71,10 @@ func (s *FunctionService) Update(ctx context.Context, name string, req *model.Up
 		return nil, nil
 	}
 
+	if err := req.Validate(existing); err != nil {
+		return nil, fmt.Errorf("validation: %w", err)
+	}
+
 	if req.Code != "" {
 		existing.Code = req.Code
 	}
@@ -88,6 +92,10 @@ func (s *FunctionService) Update(ctx context.Context, name string, req *model.Up
 	s.logger.Info("function updated", "name", name)
 
 	return existing, nil
+}
+
+func (s *FunctionService) InvokeURL(name string) string {
+	return s.deployer.InvokeURL(name)
 }
 
 func (s *FunctionService) Delete(ctx context.Context, name string) error {

@@ -55,6 +55,22 @@ type UpdateFunctionRequest struct {
 	Image string `json:"image,omitempty"`
 }
 
+func (r *UpdateFunctionRequest) Validate(existing *Function) error {
+	if r.Code == "" && r.Image == "" {
+		return fmt.Errorf("code or image is required")
+	}
+	if existing.DeployType == DeployTypeManaged && r.Image != "" {
+		return fmt.Errorf("cannot change image for managed function")
+	}
+	if existing.DeployType == DeployTypeBYOI && r.Code != "" {
+		return fmt.Errorf("cannot set code for byoi function")
+	}
+	if r.Code != "" && len(r.Code) > 1_000_000 {
+		return fmt.Errorf("code must be under 1MB")
+	}
+	return nil
+}
+
 var nameRegex = regexp.MustCompile(`^[a-z][a-z0-9-]{0,61}[a-z0-9]$`)
 
 func (r *CreateFunctionRequest) Validate() error {

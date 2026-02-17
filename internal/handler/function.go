@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -25,6 +26,7 @@ func (h *FunctionHandler) Routes() chi.Router {
 	r.Get("/{name}", h.Get)
 	r.Put("/{name}", h.Update)
 	r.Delete("/{name}", h.Delete)
+	r.Post("/{name}/invoke", h.Invoke)
 	return r
 }
 
@@ -84,7 +86,7 @@ func (h *FunctionHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	fn, err := h.svc.Update(r.Context(), name, &req)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 	if fn == nil {
@@ -93,6 +95,44 @@ func (h *FunctionHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, fn)
+}
+
+func (h *FunctionHandler) Invoke(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+
+	fn, err := h.svc.Get(r.Context(), name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if fn == nil {
+		writeError(w, http.StatusNotFound, "function not found")
+		return
+	}
+
+	targetURL := h.svc.InvokeURL(name)
+
+	proxyReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, targetURL, r.Body)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create proxy request")
+		return
+	}
+	proxyReq.Header.Set("Content-Type", r.Header.Get("Content-Type"))
+
+	resp, err := http.DefaultClient.Do(proxyReq)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "function invocation failed: "+err.Error())
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	for key, values := range resp.Header {
+		for _, v := range values {
+			w.Header().Add(key, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
 }
 
 func (h *FunctionHandler) Delete(w http.ResponseWriter, r *http.Request) {

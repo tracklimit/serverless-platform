@@ -118,6 +118,10 @@ func (d *KnativeDeployer) Delete(ctx context.Context, name string) error {
 	return nil
 }
 
+func (d *KnativeDeployer) InvokeURL(name string) string {
+	return fmt.Sprintf("http://%s.%s.svc.cluster.local", serviceName(name), d.namespace)
+}
+
 func (d *KnativeDeployer) ensureConfigMap(ctx context.Context, fn *model.Function) error {
 	cmName := configMapName(fn.Name)
 	fileName := codeFileName(fn.Runtime)
