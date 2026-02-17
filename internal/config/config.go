@@ -1,10 +1,15 @@
 package config
 
-import "os"
+import (
+	"os"
+	"time"
+)
 
 type Config struct {
-	Port      string
-	Namespace string
+	Port       string
+	Namespace  string
+	PlatformNS string
+	JWTExpiry  time.Duration
 }
 
 func Load() *Config {
@@ -18,8 +23,15 @@ func Load() *Config {
 		ns = "functions"
 	}
 
+	platformNS := os.Getenv("PLATFORM_NAMESPACE")
+	if platformNS == "" {
+		platformNS = "serverless-platform"
+	}
+
 	return &Config{
-		Port:      port,
-		Namespace: ns,
+		Port:       port,
+		Namespace:  ns,
+		PlatformNS: platformNS,
+		JWTExpiry:  24 * time.Hour,
 	}
 }
