@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"golang.org/x/crypto/bcrypt"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -53,6 +55,11 @@ func main() {
 	signingKey, err := loadOrCreateSigningKey(kubeClient, cfg.PlatformNS)
 	if err != nil {
 		logger.Error("failed to load JWT signing key", "error", err)
+		os.Exit(1)
+	}
+
+	if err := ensureDefaultCredentials(kubeClient, cfg.PlatformNS, logger); err != nil {
+		logger.Error("failed to bootstrap credentials", "error", err)
 		os.Exit(1)
 	}
 
@@ -163,4 +170,38 @@ func loadOrCreateSigningKey(kubeClient kubernetes.Interface, namespace string) (
 	}
 
 	return key, nil
+}
+
+func ensureDefaultCredentials(kubeClient kubernetes.Interface, namespace string, logger *slog.Logger) error {
+	ctx := context.Background()
+	secretName := "platform-credentials"
+
+	_, err := kubeClient.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
+	if err == nil {
+		return nil
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte("admin"), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: namespace,
+		},
+		Data: map[string][]byte{
+			"username":      []byte("admin"),
+			"password-hash": hash,
+		},
+	}
+
+	_, err = kubeClient.CoreV1().Secrets(namespace).Create(ctx, secret, metav1.CreateOptions{})
+	if err != nil {
+		return fmt.Errorf("create secret: %w", err)
+	}
+
+	logger.Warn("created default credentials (admin/admin) — change these in production")
+	return nil
 }
