@@ -55,7 +55,14 @@ func (d *KnativeDeployer) Deploy(ctx context.Context, fn *model.Function) (strin
 	if err == nil {
 		existing.Spec = ksvc.Spec
 		existing.Labels = ksvc.Labels
-		existing.Annotations = ksvc.Annotations
+		// Merge our annotations without overwriting Knative's immutable system annotations
+		// (e.g. serving.knative.dev/creator).
+		if existing.Annotations == nil {
+			existing.Annotations = map[string]string{}
+		}
+		for k, v := range ksvc.Annotations {
+			existing.Annotations[k] = v
+		}
 		updated, err := d.servingClient.ServingV1().Services(d.namespace).Update(ctx, existing, metav1.UpdateOptions{})
 		if err != nil {
 			return "", fmt.Errorf("update knative service: %w", err)
