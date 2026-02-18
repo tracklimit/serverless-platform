@@ -309,7 +309,9 @@ func serviceToFunction(svc *servingv1.Service) *model.Function {
 
 	fn.Status = knativeStatus(svc)
 
-	if fn.DeployType == model.DeployTypeBYOI {
+	if fn.DeployType == model.DeployTypeManaged {
+		fn.Code = svc.Annotations[annotationCode]
+	} else {
 		containers := svc.Spec.Template.Spec.Containers
 		if len(containers) > 0 {
 			fn.Image = containers[0].Image
