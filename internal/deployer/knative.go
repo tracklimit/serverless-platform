@@ -1,6 +1,7 @@
 package deployer
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 
@@ -120,6 +121,44 @@ func (d *KnativeDeployer) Delete(ctx context.Context, name string) error {
 
 func (d *KnativeDeployer) InvokeURL(name string) string {
 	return fmt.Sprintf("http://%s.%s.svc.cluster.local", serviceName(name), d.namespace)
+}
+
+func (d *KnativeDeployer) Logs(ctx context.Context, name string, tail int64) (string, error) {
+	labelSelector := "serving.knative.dev/service=" + serviceName(name)
+	pods, err := d.kubeClient.CoreV1().Pods(d.namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil {
+		return "", fmt.Errorf("list pods: %w", err)
+	}
+	if len(pods.Items) == 0 {
+		return "", nil
+	}
+
+	// Use the most recently created pod
+	latest := pods.Items[0]
+	for _, p := range pods.Items[1:] {
+		if p.CreationTimestamp.After(latest.CreationTimestamp.Time) {
+			latest = p
+		}
+	}
+
+	req := d.kubeClient.CoreV1().Pods(d.namespace).GetLogs(latest.Name, &corev1.PodLogOptions{
+		Container: "user-function",
+		TailLines: &tail,
+	})
+
+	stream, err := req.Stream(ctx)
+	if err != nil {
+		return "", fmt.Errorf("stream logs: %w", err)
+	}
+	defer func() { _ = stream.Close() }()
+
+	buf := new(bytes.Buffer)
+	if _, err := buf.ReadFrom(stream); err != nil {
+		return "", fmt.Errorf("read logs: %w", err)
+	}
+	return buf.String(), nil
 }
 
 func (d *KnativeDeployer) ensureConfigMap(ctx context.Context, fn *model.Function) error {

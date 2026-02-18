@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
@@ -27,6 +28,7 @@ func (h *FunctionHandler) Routes() chi.Router {
 	r.Put("/{name}", h.Update)
 	r.Delete("/{name}", h.Delete)
 	r.Post("/{name}/invoke", h.Invoke)
+	r.Get("/{name}/logs", h.Logs)
 	return r
 }
 
@@ -133,6 +135,25 @@ func (h *FunctionHandler) Invoke(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
+}
+
+func (h *FunctionHandler) Logs(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+
+	tail := int64(100)
+	if t := r.URL.Query().Get("tail"); t != "" {
+		if v, err := strconv.ParseInt(t, 10, 64); err == nil && v > 0 {
+			tail = v
+		}
+	}
+
+	logs, err := h.svc.Logs(r.Context(), name, tail)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"logs": logs})
 }
 
 func (h *FunctionHandler) Delete(w http.ResponseWriter, r *http.Request) {

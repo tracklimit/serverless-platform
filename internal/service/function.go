@@ -98,6 +98,10 @@ func (s *FunctionService) InvokeURL(name string) string {
 	return s.deployer.InvokeURL(name)
 }
 
+func (s *FunctionService) Logs(ctx context.Context, name string, tail int64) (string, error) {
+	return s.deployer.Logs(ctx, name, tail)
+}
+
 func (s *FunctionService) Delete(ctx context.Context, name string) error {
 	if err := s.deployer.Delete(ctx, name); err != nil {
 		return fmt.Errorf("delete: %w", err)
