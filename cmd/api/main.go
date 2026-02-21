@@ -92,6 +92,7 @@ func main() {
 	// Protected routes
 	r.Group(func(r chi.Router) {
 		r.Use(auth.Middleware(tokenService))
+		r.Post("/api/v1/auth/change-password", authHandler.ChangePassword)
 		r.Mount("/api/v1/functions", functionHandler.Routes())
 	})
 
