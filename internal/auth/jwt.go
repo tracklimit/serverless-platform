@@ -8,7 +8,10 @@ import (
 )
 
 type Claims struct {
-	Username string `json:"username"`
+	Username      string `json:"username"`
+	IsAdmin       bool   `json:"is_admin"`
+	WorkspaceSlug string `json:"workspace_slug"`
+	WorkspaceRole string `json:"workspace_role"`
 	jwt.RegisteredClaims
 }
 
@@ -24,10 +27,13 @@ func NewTokenService(signingKey []byte, expiry time.Duration) *TokenService {
 	}
 }
 
-func (s *TokenService) Generate(username string) (string, error) {
+func (s *TokenService) Generate(username string, isAdmin bool, workspaceSlug, workspaceRole string) (string, error) {
 	now := time.Now()
 	claims := Claims{
-		Username: username,
+		Username:      username,
+		IsAdmin:       isAdmin,
+		WorkspaceSlug: workspaceSlug,
+		WorkspaceRole: workspaceRole,
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(s.expiry)),

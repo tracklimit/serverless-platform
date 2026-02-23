@@ -112,7 +112,7 @@ func (h *FunctionHandler) Invoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetURL := h.svc.InvokeURL(name)
+	targetURL := h.svc.InvokeURL(r.Context(), name)
 
 	proxyReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, targetURL, r.Body)
 	if err != nil {

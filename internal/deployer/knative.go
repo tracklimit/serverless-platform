@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -29,56 +30,141 @@ const (
 type KnativeDeployer struct {
 	kubeClient    kubernetes.Interface
 	servingClient servingclient.Interface
-	namespace     string
 }
 
-func NewKnativeDeployer(kubeClient kubernetes.Interface, servingClient servingclient.Interface, namespace string) *KnativeDeployer {
+func NewKnativeDeployer(kubeClient kubernetes.Interface, servingClient servingclient.Interface) *KnativeDeployer {
 	return &KnativeDeployer{
 		kubeClient:    kubeClient,
 		servingClient: servingClient,
-		namespace:     namespace,
 	}
 }
 
-func (d *KnativeDeployer) Deploy(ctx context.Context, fn *model.Function) (string, error) {
-	serviceName := serviceName(fn.Name)
+func (d *KnativeDeployer) EnsureNamespace(ctx context.Context, namespace string) error {
+	_, err := d.kubeClient.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+	if err == nil {
+		return nil
+	}
+	if !k8serrors.IsNotFound(err) {
+		return fmt.Errorf("check namespace: %w", err)
+	}
+
+	ns := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: namespace,
+			Labels: map[string]string{
+				labelManagedBy: "serverless-platform",
+			},
+		},
+	}
+	_, err = d.kubeClient.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
+	return err
+}
+
+func (d *KnativeDeployer) EnsureNamespaceRBAC(ctx context.Context, namespace string) error {
+	roleName := "serverless-platform-deployer"
+
+	role := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      roleName,
+			Namespace: namespace,
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{"serving.knative.dev"},
+				Resources: []string{"services"},
+				Verbs:     []string{"get", "list", "create", "update", "delete"},
+			},
+			{
+				APIGroups: []string{""},
+				Resources: []string{"configmaps"},
+				Verbs:     []string{"get", "list", "create", "update", "delete"},
+			},
+			{
+				APIGroups: []string{""},
+				Resources: []string{"pods"},
+				Verbs:     []string{"get", "list"},
+			},
+			{
+				APIGroups: []string{""},
+				Resources: []string{"pods/log"},
+				Verbs:     []string{"get"},
+			},
+		},
+	}
+
+	_, err := d.kubeClient.RbacV1().Roles(namespace).Get(ctx, roleName, metav1.GetOptions{})
+	if k8serrors.IsNotFound(err) {
+		if _, err := d.kubeClient.RbacV1().Roles(namespace).Create(ctx, role, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("create role: %w", err)
+		}
+	}
+
+	binding := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      roleName,
+			Namespace: namespace,
+		},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     "Role",
+			Name:     roleName,
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      "ServiceAccount",
+				Name:      "serverless-platform",
+				Namespace: "serverless-platform",
+			},
+		},
+	}
+
+	_, err = d.kubeClient.RbacV1().RoleBindings(namespace).Get(ctx, roleName, metav1.GetOptions{})
+	if k8serrors.IsNotFound(err) {
+		if _, err := d.kubeClient.RbacV1().RoleBindings(namespace).Create(ctx, binding, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("create role binding: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (d *KnativeDeployer) Deploy(ctx context.Context, namespace string, fn *model.Function) (string, error) {
+	svcName := serviceName(fn.Name)
 
 	if fn.DeployType == model.DeployTypeManaged {
-		if err := d.ensureConfigMap(ctx, fn); err != nil {
+		if err := d.ensureConfigMap(ctx, namespace, fn); err != nil {
 			return "", fmt.Errorf("create configmap: %w", err)
 		}
 	}
 
-	ksvc := d.buildService(fn, serviceName)
+	ksvc := d.buildService(namespace, fn, svcName)
 
-	existing, err := d.servingClient.ServingV1().Services(d.namespace).Get(ctx, serviceName, metav1.GetOptions{})
+	existing, err := d.servingClient.ServingV1().Services(namespace).Get(ctx, svcName, metav1.GetOptions{})
 	if err == nil {
 		existing.Spec = ksvc.Spec
 		existing.Labels = ksvc.Labels
-		// Merge our annotations without overwriting Knative's immutable system annotations
-		// (e.g. serving.knative.dev/creator).
 		if existing.Annotations == nil {
 			existing.Annotations = map[string]string{}
 		}
 		for k, v := range ksvc.Annotations {
 			existing.Annotations[k] = v
 		}
-		updated, err := d.servingClient.ServingV1().Services(d.namespace).Update(ctx, existing, metav1.UpdateOptions{})
+		updated, err := d.servingClient.ServingV1().Services(namespace).Update(ctx, existing, metav1.UpdateOptions{})
 		if err != nil {
 			return "", fmt.Errorf("update knative service: %w", err)
 		}
 		return serviceURL(updated), nil
 	}
 
-	created, err := d.servingClient.ServingV1().Services(d.namespace).Create(ctx, ksvc, metav1.CreateOptions{})
+	created, err := d.servingClient.ServingV1().Services(namespace).Create(ctx, ksvc, metav1.CreateOptions{})
 	if err != nil {
 		return "", fmt.Errorf("create knative service: %w", err)
 	}
 	return serviceURL(created), nil
 }
 
-func (d *KnativeDeployer) Get(ctx context.Context, name string) (*model.Function, error) {
-	svc, err := d.servingClient.ServingV1().Services(d.namespace).Get(ctx, serviceName(name), metav1.GetOptions{})
+func (d *KnativeDeployer) Get(ctx context.Context, namespace, name string) (*model.Function, error) {
+	svc, err := d.servingClient.ServingV1().Services(namespace).Get(ctx, serviceName(name), metav1.GetOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			return nil, nil
@@ -88,8 +174,8 @@ func (d *KnativeDeployer) Get(ctx context.Context, name string) (*model.Function
 	return serviceToFunction(svc), nil
 }
 
-func (d *KnativeDeployer) List(ctx context.Context) ([]*model.Function, error) {
-	list, err := d.servingClient.ServingV1().Services(d.namespace).List(ctx, metav1.ListOptions{
+func (d *KnativeDeployer) List(ctx context.Context, namespace string) ([]*model.Function, error) {
+	list, err := d.servingClient.ServingV1().Services(namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelManagedBy + "=serverless-platform",
 	})
 	if err != nil {
@@ -103,10 +189,10 @@ func (d *KnativeDeployer) List(ctx context.Context) ([]*model.Function, error) {
 	return functions, nil
 }
 
-func (d *KnativeDeployer) Delete(ctx context.Context, name string) error {
+func (d *KnativeDeployer) Delete(ctx context.Context, namespace, name string) error {
 	svcName := serviceName(name)
 
-	svc, err := d.servingClient.ServingV1().Services(d.namespace).Get(ctx, svcName, metav1.GetOptions{})
+	svc, err := d.servingClient.ServingV1().Services(namespace).Get(ctx, svcName, metav1.GetOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			return fmt.Errorf("function not found")
@@ -114,26 +200,24 @@ func (d *KnativeDeployer) Delete(ctx context.Context, name string) error {
 		return fmt.Errorf("get knative service: %w", err)
 	}
 
-	if err := d.servingClient.ServingV1().Services(d.namespace).Delete(ctx, svcName, metav1.DeleteOptions{}); err != nil {
+	if err := d.servingClient.ServingV1().Services(namespace).Delete(ctx, svcName, metav1.DeleteOptions{}); err != nil {
 		return fmt.Errorf("delete knative service: %w", err)
 	}
 
 	if svc.Labels[labelDeployType] == string(model.DeployTypeManaged) {
-		cmName := configMapName(name)
-		_ = d.kubeClient.CoreV1().ConfigMaps(d.namespace).Delete(ctx, cmName, metav1.DeleteOptions{})
+		_ = d.kubeClient.CoreV1().ConfigMaps(namespace).Delete(ctx, configMapName(name), metav1.DeleteOptions{})
 	}
 
 	return nil
 }
 
-func (d *KnativeDeployer) InvokeURL(name string) string {
-	return fmt.Sprintf("http://%s.%s.svc.cluster.local", serviceName(name), d.namespace)
+func (d *KnativeDeployer) InvokeURL(namespace, name string) string {
+	return fmt.Sprintf("http://%s.%s.svc.cluster.local", serviceName(name), namespace)
 }
 
-func (d *KnativeDeployer) Logs(ctx context.Context, name string, tail int64) (string, error) {
-	labelSelector := "serving.knative.dev/service=" + serviceName(name)
-	pods, err := d.kubeClient.CoreV1().Pods(d.namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: labelSelector,
+func (d *KnativeDeployer) Logs(ctx context.Context, namespace, name string, tail int64) (string, error) {
+	pods, err := d.kubeClient.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: "serving.knative.dev/service=" + serviceName(name),
 	})
 	if err != nil {
 		return "", fmt.Errorf("list pods: %w", err)
@@ -142,7 +226,6 @@ func (d *KnativeDeployer) Logs(ctx context.Context, name string, tail int64) (st
 		return "", nil
 	}
 
-	// Use the most recently created pod
 	latest := pods.Items[0]
 	for _, p := range pods.Items[1:] {
 		if p.CreationTimestamp.After(latest.CreationTimestamp.Time) {
@@ -150,7 +233,7 @@ func (d *KnativeDeployer) Logs(ctx context.Context, name string, tail int64) (st
 		}
 	}
 
-	req := d.kubeClient.CoreV1().Pods(d.namespace).GetLogs(latest.Name, &corev1.PodLogOptions{
+	req := d.kubeClient.CoreV1().Pods(namespace).GetLogs(latest.Name, &corev1.PodLogOptions{
 		Container: "user-function",
 		TailLines: &tail,
 	})
@@ -168,14 +251,14 @@ func (d *KnativeDeployer) Logs(ctx context.Context, name string, tail int64) (st
 	return buf.String(), nil
 }
 
-func (d *KnativeDeployer) ensureConfigMap(ctx context.Context, fn *model.Function) error {
+func (d *KnativeDeployer) ensureConfigMap(ctx context.Context, namespace string, fn *model.Function) error {
 	cmName := configMapName(fn.Name)
 	fileName := codeFileName(fn.Runtime)
 
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      cmName,
-			Namespace: d.namespace,
+			Namespace: namespace,
 			Labels: map[string]string{
 				labelManagedBy: "serverless-platform",
 			},
@@ -185,18 +268,18 @@ func (d *KnativeDeployer) ensureConfigMap(ctx context.Context, fn *model.Functio
 		},
 	}
 
-	existing, err := d.kubeClient.CoreV1().ConfigMaps(d.namespace).Get(ctx, cmName, metav1.GetOptions{})
+	existing, err := d.kubeClient.CoreV1().ConfigMaps(namespace).Get(ctx, cmName, metav1.GetOptions{})
 	if err == nil {
 		existing.Data = cm.Data
-		_, err = d.kubeClient.CoreV1().ConfigMaps(d.namespace).Update(ctx, existing, metav1.UpdateOptions{})
+		_, err = d.kubeClient.CoreV1().ConfigMaps(namespace).Update(ctx, existing, metav1.UpdateOptions{})
 		return err
 	}
 
-	_, err = d.kubeClient.CoreV1().ConfigMaps(d.namespace).Create(ctx, cm, metav1.CreateOptions{})
+	_, err = d.kubeClient.CoreV1().ConfigMaps(namespace).Create(ctx, cm, metav1.CreateOptions{})
 	return err
 }
 
-func (d *KnativeDeployer) buildService(fn *model.Function, svcName string) *servingv1.Service {
+func (d *KnativeDeployer) buildService(namespace string, fn *model.Function, svcName string) *servingv1.Service {
 	podSpec := d.basePodSpec(fn)
 
 	labels := map[string]string{
@@ -213,7 +296,7 @@ func (d *KnativeDeployer) buildService(fn *model.Function, svcName string) *serv
 	return &servingv1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        svcName,
-			Namespace:   d.namespace,
+			Namespace:   namespace,
 			Labels:      labels,
 			Annotations: annotations,
 		},

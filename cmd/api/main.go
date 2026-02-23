@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/cors"
 	"golang.org/x/crypto/bcrypt"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -24,6 +25,7 @@ import (
 
 	"serverless-platform/internal/auth"
 	"serverless-platform/internal/config"
+	"serverless-platform/internal/db"
 	"serverless-platform/internal/deployer"
 	"serverless-platform/internal/handler"
 	"serverless-platform/internal/service"
@@ -52,24 +54,38 @@ func main() {
 		os.Exit(1)
 	}
 
+	database, err := db.New(cfg.DatabaseDSN)
+	if err != nil {
+		logger.Error("failed to connect to database", "error", err)
+		os.Exit(1)
+	}
+	defer func() { _ = database.Close() }()
+
+	if err := db.RunMigrations(database); err != nil {
+		logger.Error("failed to run migrations", "error", err)
+		os.Exit(1)
+	}
+
+	if err := migrateAdminFromSecret(context.Background(), kubeClient, database, cfg.PlatformNS, logger); err != nil {
+		logger.Error("failed to migrate admin credentials", "error", err)
+		os.Exit(1)
+	}
+
 	signingKey, err := loadOrCreateSigningKey(kubeClient, cfg.PlatformNS)
 	if err != nil {
 		logger.Error("failed to load JWT signing key", "error", err)
 		os.Exit(1)
 	}
 
-	if err := ensureDefaultCredentials(kubeClient, cfg.PlatformNS, logger); err != nil {
-		logger.Error("failed to bootstrap credentials", "error", err)
-		os.Exit(1)
-	}
-
 	tokenService := auth.NewTokenService(signingKey, cfg.JWTExpiry)
 
-	dep := deployer.NewKnativeDeployer(kubeClient, servingClient, cfg.Namespace)
+	dep := deployer.NewKnativeDeployer(kubeClient, servingClient)
 	svc := service.NewFunctionService(dep, logger)
 
 	healthHandler := handler.NewHealthHandler(kubeClient)
-	authHandler := handler.NewAuthHandler(kubeClient, tokenService, cfg.PlatformNS)
+	authHandler := handler.NewAuthHandler(database, tokenService)
+	userHandler := handler.NewUserHandler(database)
+	workspaceHandler := handler.NewWorkspaceHandler(database)
 	functionHandler := handler.NewFunctionHandler(svc)
 
 	r := chi.NewRouter()
@@ -89,11 +105,24 @@ func main() {
 	r.Get("/readyz", healthHandler.Readyz)
 	r.Post("/api/v1/auth/login", authHandler.Login)
 
-	// Protected routes
+	// Authenticated routes
 	r.Group(func(r chi.Router) {
 		r.Use(auth.Middleware(tokenService))
 		r.Post("/api/v1/auth/change-password", authHandler.ChangePassword)
-		r.Mount("/api/v1/functions", functionHandler.Routes())
+
+		// Admin-only routes
+		r.Group(func(r chi.Router) {
+			r.Use(auth.AdminOnly)
+			r.Mount("/api/v1/users", userHandler.Routes())
+			r.Mount("/api/v1/workspaces", workspaceHandler.AdminRoutes())
+		})
+
+		// Workspace-scoped routes
+		r.Group(func(r chi.Router) {
+			r.Use(auth.WorkspaceRequired)
+			r.Mount("/api/v1/functions", functionHandler.Routes())
+			r.Mount("/api/v1/workspace", workspaceHandler.OwnerRoutes())
+		})
 	})
 
 	server := &http.Server{
@@ -173,36 +202,38 @@ func loadOrCreateSigningKey(kubeClient kubernetes.Interface, namespace string) (
 	return key, nil
 }
 
-func ensureDefaultCredentials(kubeClient kubernetes.Interface, namespace string, logger *slog.Logger) error {
-	ctx := context.Background()
-	secretName := "platform-credentials"
+// migrateAdminFromSecret seeds the first admin user from the K8s Secret (or
+// defaults to admin/admin) when no users exist in the database yet.
+func migrateAdminFromSecret(ctx context.Context, kubeClient kubernetes.Interface, database *db.DB, namespace string, logger *slog.Logger) error {
+	has, err := database.HasAnyUser(ctx)
+	if err != nil {
+		return fmt.Errorf("check users: %w", err)
+	}
+	if has {
+		return nil // already seeded
+	}
 
-	_, err := kubeClient.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
+	var passwordHash string
+
+	secret, err := kubeClient.CoreV1().Secrets(namespace).Get(ctx, "platform-credentials", metav1.GetOptions{})
 	if err == nil {
-		return nil
+		if h, ok := secret.Data["password-hash"]; ok && len(h) > 0 {
+			passwordHash = string(h)
+			logger.Info("migrated admin user from K8s Secret to PostgreSQL")
+		}
+	} else if !k8serrors.IsNotFound(err) {
+		return fmt.Errorf("read platform-credentials secret: %w", err)
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte("admin"), bcrypt.DefaultCost)
-	if err != nil {
-		return fmt.Errorf("hash password: %w", err)
+	if passwordHash == "" {
+		hash, err := bcrypt.GenerateFromPassword([]byte("admin"), bcrypt.DefaultCost)
+		if err != nil {
+			return fmt.Errorf("hash password: %w", err)
+		}
+		passwordHash = string(hash)
+		logger.Warn("no existing credentials found — seeding admin/admin (change immediately)")
 	}
 
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      secretName,
-			Namespace: namespace,
-		},
-		Data: map[string][]byte{
-			"username":      []byte("admin"),
-			"password-hash": hash,
-		},
-	}
-
-	_, err = kubeClient.CoreV1().Secrets(namespace).Create(ctx, secret, metav1.CreateOptions{})
-	if err != nil {
-		return fmt.Errorf("create secret: %w", err)
-	}
-
-	logger.Warn("created default credentials (admin/admin) — change these in production")
-	return nil
+	_, err = database.CreateUser(ctx, "admin", passwordHash, true)
+	return err
 }
