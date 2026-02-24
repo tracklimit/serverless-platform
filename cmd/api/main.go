@@ -87,6 +87,7 @@ func main() {
 	userHandler := handler.NewUserHandler(database)
 	workspaceHandler := handler.NewWorkspaceHandler(database)
 	functionHandler := handler.NewFunctionHandler(svc)
+	metricsHandler := handler.NewMetricsHandler(cfg.PrometheusURL)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
@@ -120,7 +121,7 @@ func main() {
 		// Workspace-scoped routes
 		r.Group(func(r chi.Router) {
 			r.Use(auth.WorkspaceRequired)
-			r.Mount("/api/v1/functions", functionHandler.Routes())
+			r.Mount("/api/v1/functions", functionHandler.Routes(metricsHandler))
 			r.Mount("/api/v1/workspace", workspaceHandler.OwnerRoutes())
 		})
 	})

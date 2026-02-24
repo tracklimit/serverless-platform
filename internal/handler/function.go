@@ -20,7 +20,7 @@ func NewFunctionHandler(svc *service.FunctionService) *FunctionHandler {
 	return &FunctionHandler{svc: svc}
 }
 
-func (h *FunctionHandler) Routes() chi.Router {
+func (h *FunctionHandler) Routes(metrics *MetricsHandler) chi.Router {
 	r := chi.NewRouter()
 	r.Post("/", h.Create)
 	r.Get("/", h.List)
@@ -29,6 +29,7 @@ func (h *FunctionHandler) Routes() chi.Router {
 	r.Delete("/{name}", h.Delete)
 	r.Post("/{name}/invoke", h.Invoke)
 	r.Get("/{name}/logs", h.Logs)
+	r.Get("/{name}/metrics", metrics.Get)
 	return r
 }
 

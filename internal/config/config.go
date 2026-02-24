@@ -7,11 +7,12 @@ import (
 )
 
 type Config struct {
-	Port        string
-	PlatformNS  string
-	DatabaseDSN string
-	JWTExpiry   time.Duration
-	CORSOrigins []string
+	Port          string
+	PlatformNS    string
+	DatabaseDSN   string
+	PrometheusURL string
+	JWTExpiry     time.Duration
+	CORSOrigins   []string
 }
 
 func Load() *Config {
@@ -30,11 +31,17 @@ func Load() *Config {
 		corsOrigins = strings.Split(origins, ",")
 	}
 
+	prometheusURL := os.Getenv("PROMETHEUS_URL")
+	if prometheusURL == "" {
+		prometheusURL = "http://prometheus-operated.monitoring.svc.cluster.local:9090"
+	}
+
 	return &Config{
-		Port:        port,
-		PlatformNS:  platformNS,
-		DatabaseDSN: os.Getenv("DATABASE_DSN"),
-		JWTExpiry:   24 * time.Hour,
-		CORSOrigins: corsOrigins,
+		Port:          port,
+		PlatformNS:    platformNS,
+		DatabaseDSN:   os.Getenv("DATABASE_DSN"),
+		PrometheusURL: prometheusURL,
+		JWTExpiry:     24 * time.Hour,
+		CORSOrigins:   corsOrigins,
 	}
 }
