@@ -141,14 +141,6 @@ func (d *KnativeDeployer) copySecret(ctx context.Context, name, toNamespace stri
 		return fmt.Errorf("get secret: %w", err)
 	}
 
-	_, err = d.kubeClient.CoreV1().Secrets(toNamespace).Get(ctx, name, metav1.GetOptions{})
-	if err == nil {
-		return nil // already exists
-	}
-	if !k8serrors.IsNotFound(err) {
-		return fmt.Errorf("check secret: %w", err)
-	}
-
 	dst := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -158,6 +150,9 @@ func (d *KnativeDeployer) copySecret(ctx context.Context, name, toNamespace stri
 		Data: src.Data,
 	}
 	_, err = d.kubeClient.CoreV1().Secrets(toNamespace).Create(ctx, dst, metav1.CreateOptions{})
+	if k8serrors.IsAlreadyExists(err) {
+		return nil
+	}
 	return err
 }
 
