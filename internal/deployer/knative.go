@@ -23,8 +23,6 @@ const (
 	labelManagedBy  = "app.kubernetes.io/managed-by"
 	labelRuntime    = "platform.tracklimit.io/runtime"
 	labelDeployType = "platform.tracklimit.io/deploy-type"
-
-	annotationCode = "platform.tracklimit.io/code"
 )
 
 type KnativeDeployer struct {
@@ -288,17 +286,11 @@ func (d *KnativeDeployer) buildService(namespace string, fn *model.Function, svc
 		labelDeployType: string(fn.DeployType),
 	}
 
-	annotations := map[string]string{}
-	if fn.DeployType == model.DeployTypeManaged && fn.Code != "" {
-		annotations[annotationCode] = fn.Code
-	}
-
 	return &servingv1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        svcName,
-			Namespace:   namespace,
-			Labels:      labels,
-			Annotations: annotations,
+			Name:      svcName,
+			Namespace: namespace,
+			Labels:    labels,
 		},
 		Spec: servingv1.ServiceSpec{
 			ConfigurationSpec: servingv1.ConfigurationSpec{
@@ -398,15 +390,6 @@ func serviceToFunction(svc *servingv1.Service) *model.Function {
 	}
 
 	fn.Status = knativeStatus(svc)
-
-	if fn.DeployType == model.DeployTypeManaged {
-		fn.Code = svc.Annotations[annotationCode]
-	} else {
-		containers := svc.Spec.Template.Spec.Containers
-		if len(containers) > 0 {
-			fn.Image = containers[0].Image
-		}
-	}
 
 	for _, cond := range svc.Status.Conditions {
 		if cond.LastTransitionTime.Inner.After(fn.UpdatedAt) {

@@ -248,6 +248,112 @@ func (d *DB) ListWorkspaceMembers(ctx context.Context, workspaceSlug string) ([]
 	return members, rows.Err()
 }
 
+// Functions
+
+type Function struct {
+	ID          int64
+	WorkspaceID int64
+	Name        string
+	Runtime     string
+	DeployType  string
+	Code        string
+	Image       string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+func (d *DB) CreateFunction(ctx context.Context, workspaceID int64, name, runtime, deployType, code, image string) (*Function, error) {
+	f := &Function{}
+	err := d.pool.QueryRowContext(ctx,
+		`INSERT INTO functions (workspace_id, name, runtime, deploy_type, code, image)
+		      VALUES ($1, $2, $3, $4, $5, $6)
+		   RETURNING id, workspace_id, name, runtime, deploy_type, COALESCE(code,''), COALESCE(image,''), created_at, updated_at`,
+		workspaceID, name, runtime, deployType, nullableString(code), nullableString(image),
+	).Scan(&f.ID, &f.WorkspaceID, &f.Name, &f.Runtime, &f.DeployType, &f.Code, &f.Image, &f.CreatedAt, &f.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("create function: %w", err)
+	}
+	return f, nil
+}
+
+func (d *DB) GetFunction(ctx context.Context, workspaceID int64, name string) (*Function, error) {
+	f := &Function{}
+	err := d.pool.QueryRowContext(ctx,
+		`SELECT id, workspace_id, name, runtime, deploy_type, COALESCE(code,''), COALESCE(image,''), created_at, updated_at
+		   FROM functions WHERE workspace_id = $1 AND name = $2`,
+		workspaceID, name,
+	).Scan(&f.ID, &f.WorkspaceID, &f.Name, &f.Runtime, &f.DeployType, &f.Code, &f.Image, &f.CreatedAt, &f.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get function: %w", err)
+	}
+	return f, nil
+}
+
+func (d *DB) ListFunctions(ctx context.Context, workspaceID int64) ([]*Function, error) {
+	rows, err := d.pool.QueryContext(ctx,
+		`SELECT id, workspace_id, name, runtime, deploy_type, COALESCE(code,''), COALESCE(image,''), created_at, updated_at
+		   FROM functions WHERE workspace_id = $1 ORDER BY created_at`,
+		workspaceID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list functions: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var functions []*Function
+	for rows.Next() {
+		f := &Function{}
+		if err := rows.Scan(&f.ID, &f.WorkspaceID, &f.Name, &f.Runtime, &f.DeployType, &f.Code, &f.Image, &f.CreatedAt, &f.UpdatedAt); err != nil {
+			return nil, err
+		}
+		functions = append(functions, f)
+	}
+	return functions, rows.Err()
+}
+
+func (d *DB) UpdateFunction(ctx context.Context, workspaceID int64, name, code, image string) (*Function, error) {
+	f := &Function{}
+	err := d.pool.QueryRowContext(ctx,
+		`UPDATE functions
+		    SET code = $3, image = $4, updated_at = NOW()
+		  WHERE workspace_id = $1 AND name = $2
+		  RETURNING id, workspace_id, name, runtime, deploy_type, COALESCE(code,''), COALESCE(image,''), created_at, updated_at`,
+		workspaceID, name, nullableString(code), nullableString(image),
+	).Scan(&f.ID, &f.WorkspaceID, &f.Name, &f.Runtime, &f.DeployType, &f.Code, &f.Image, &f.CreatedAt, &f.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("update function: %w", err)
+	}
+	return f, nil
+}
+
+func (d *DB) DeleteFunction(ctx context.Context, workspaceID int64, name string) error {
+	res, err := d.pool.ExecContext(ctx,
+		`DELETE FROM functions WHERE workspace_id = $1 AND name = $2`,
+		workspaceID, name,
+	)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("function not found")
+	}
+	return nil
+}
+
+func nullableString(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
 // GetUserWorkspace returns the workspace the user belongs to (first membership found).
 func (d *DB) GetUserWorkspace(ctx context.Context, username string) (*Workspace, string, error) {
 	w := &Workspace{}

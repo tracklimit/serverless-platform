@@ -21,5 +21,19 @@ CREATE TABLE IF NOT EXISTS workspace_members (
     CONSTRAINT workspace_members_role_check CHECK (role IN ('owner', 'member'))
 );
 
+CREATE TABLE IF NOT EXISTS functions (
+    id           BIGSERIAL    PRIMARY KEY,
+    workspace_id BIGINT       NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    name         VARCHAR(63)  NOT NULL,
+    runtime      VARCHAR(20)  NOT NULL,
+    deploy_type  VARCHAR(20)  NOT NULL,
+    code         TEXT,
+    image        VARCHAR(255),
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    UNIQUE (workspace_id, name)
+);
+
 CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);
 CREATE INDEX IF NOT EXISTS idx_workspace_members_user_id ON workspace_members (user_id);
+CREATE INDEX IF NOT EXISTS idx_functions_workspace_id ON functions (workspace_id);
