@@ -79,7 +79,7 @@ func main() {
 
 	tokenService := auth.NewTokenService(signingKey, cfg.JWTExpiry)
 
-	dep := deployer.NewKnativeDeployer(kubeClient, servingClient)
+	dep := deployer.NewKnativeDeployer(kubeClient, servingClient, cfg.PlatformNS)
 	svc := service.NewFunctionService(database, dep, logger)
 
 	healthHandler := handler.NewHealthHandler(kubeClient)

@@ -28,12 +28,14 @@ const (
 type KnativeDeployer struct {
 	kubeClient    kubernetes.Interface
 	servingClient servingclient.Interface
+	platformNS    string
 }
 
-func NewKnativeDeployer(kubeClient kubernetes.Interface, servingClient servingclient.Interface) *KnativeDeployer {
+func NewKnativeDeployer(kubeClient kubernetes.Interface, servingClient servingclient.Interface, platformNS string) *KnativeDeployer {
 	return &KnativeDeployer{
 		kubeClient:    kubeClient,
 		servingClient: servingClient,
+		platformNS:    platformNS,
 	}
 }
 
@@ -123,7 +125,40 @@ func (d *KnativeDeployer) EnsureNamespaceRBAC(ctx context.Context, namespace str
 		}
 	}
 
+	if err := d.copySecret(ctx, "ghcr-pull", namespace); err != nil {
+		return fmt.Errorf("copy pull secret: %w", err)
+	}
+
 	return nil
+}
+
+func (d *KnativeDeployer) copySecret(ctx context.Context, name, toNamespace string) error {
+	src, err := d.kubeClient.CoreV1().Secrets(d.platformNS).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("get secret: %w", err)
+	}
+
+	_, err = d.kubeClient.CoreV1().Secrets(toNamespace).Get(ctx, name, metav1.GetOptions{})
+	if err == nil {
+		return nil // already exists
+	}
+	if !k8serrors.IsNotFound(err) {
+		return fmt.Errorf("check secret: %w", err)
+	}
+
+	dst := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: toNamespace,
+		},
+		Type: src.Type,
+		Data: src.Data,
+	}
+	_, err = d.kubeClient.CoreV1().Secrets(toNamespace).Create(ctx, dst, metav1.CreateOptions{})
+	return err
 }
 
 func (d *KnativeDeployer) Deploy(ctx context.Context, namespace string, fn *model.Function) (string, error) {
