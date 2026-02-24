@@ -8,14 +8,16 @@ import (
 
 	"serverless-platform/internal/auth"
 	"serverless-platform/internal/db"
+	"serverless-platform/internal/deployer"
 )
 
 type WorkspaceHandler struct {
-	db *db.DB
+	db       *db.DB
+	deployer *deployer.KnativeDeployer
 }
 
-func NewWorkspaceHandler(database *db.DB) *WorkspaceHandler {
-	return &WorkspaceHandler{db: database}
+func NewWorkspaceHandler(database *db.DB, dep *deployer.KnativeDeployer) *WorkspaceHandler {
+	return &WorkspaceHandler{db: database, deployer: dep}
 }
 
 func (h *WorkspaceHandler) AdminRoutes() chi.Router {
@@ -107,6 +109,9 @@ func (h *WorkspaceHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "workspace not found")
 		return
 	}
+	// Best-effort: delete the workspace K8s namespace. This cascades all
+	// Knative services, ConfigMaps, and secrets inside it automatically.
+	_ = h.deployer.DeleteNamespace(r.Context(), "fn-"+slug)
 	w.WriteHeader(http.StatusNoContent)
 }
 

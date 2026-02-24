@@ -41,6 +41,14 @@ func NewKnativeDeployer(kubeClient kubernetes.Interface, servingClient servingcl
 	}
 }
 
+func (d *KnativeDeployer) DeleteNamespace(ctx context.Context, namespace string) error {
+	err := d.kubeClient.CoreV1().Namespaces().Delete(ctx, namespace, metav1.DeleteOptions{})
+	if k8serrors.IsNotFound(err) {
+		return nil
+	}
+	return err
+}
+
 func (d *KnativeDeployer) EnsureNamespace(ctx context.Context, namespace string) error {
 	_, err := d.kubeClient.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
 	if err == nil {

@@ -85,7 +85,7 @@ func main() {
 	healthHandler := handler.NewHealthHandler(kubeClient)
 	authHandler := handler.NewAuthHandler(database, tokenService)
 	userHandler := handler.NewUserHandler(database)
-	workspaceHandler := handler.NewWorkspaceHandler(database)
+	workspaceHandler := handler.NewWorkspaceHandler(database, dep)
 	functionHandler := handler.NewFunctionHandler(svc)
 	metricsHandler := handler.NewMetricsHandler(cfg.PrometheusURL)
 
