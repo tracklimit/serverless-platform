@@ -37,3 +37,5 @@ CREATE TABLE IF NOT EXISTS functions (
 CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);
 CREATE INDEX IF NOT EXISTS idx_workspace_members_user_id ON workspace_members (user_id);
 CREATE INDEX IF NOT EXISTS idx_functions_workspace_id ON functions (workspace_id);
+
+ALTER TABLE functions ADD COLUMN IF NOT EXISTS public BOOLEAN NOT NULL DEFAULT FALSE;

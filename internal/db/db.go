@@ -258,18 +258,19 @@ type Function struct {
 	DeployType  string
 	Code        string
 	Image       string
+	Public      bool
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
 
-func (d *DB) CreateFunction(ctx context.Context, workspaceID int64, name, runtime, deployType, code, image string) (*Function, error) {
+func (d *DB) CreateFunction(ctx context.Context, workspaceID int64, name, runtime, deployType, code, image string, public bool) (*Function, error) {
 	f := &Function{}
 	err := d.pool.QueryRowContext(ctx,
-		`INSERT INTO functions (workspace_id, name, runtime, deploy_type, code, image)
-		      VALUES ($1, $2, $3, $4, $5, $6)
-		   RETURNING id, workspace_id, name, runtime, deploy_type, COALESCE(code,''), COALESCE(image,''), created_at, updated_at`,
-		workspaceID, name, runtime, deployType, nullableString(code), nullableString(image),
-	).Scan(&f.ID, &f.WorkspaceID, &f.Name, &f.Runtime, &f.DeployType, &f.Code, &f.Image, &f.CreatedAt, &f.UpdatedAt)
+		`INSERT INTO functions (workspace_id, name, runtime, deploy_type, code, image, public)
+		      VALUES ($1, $2, $3, $4, $5, $6, $7)
+		   RETURNING id, workspace_id, name, runtime, deploy_type, COALESCE(code,''), COALESCE(image,''), public, created_at, updated_at`,
+		workspaceID, name, runtime, deployType, nullableString(code), nullableString(image), public,
+	).Scan(&f.ID, &f.WorkspaceID, &f.Name, &f.Runtime, &f.DeployType, &f.Code, &f.Image, &f.Public, &f.CreatedAt, &f.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create function: %w", err)
 	}
@@ -279,10 +280,10 @@ func (d *DB) CreateFunction(ctx context.Context, workspaceID int64, name, runtim
 func (d *DB) GetFunction(ctx context.Context, workspaceID int64, name string) (*Function, error) {
 	f := &Function{}
 	err := d.pool.QueryRowContext(ctx,
-		`SELECT id, workspace_id, name, runtime, deploy_type, COALESCE(code,''), COALESCE(image,''), created_at, updated_at
+		`SELECT id, workspace_id, name, runtime, deploy_type, COALESCE(code,''), COALESCE(image,''), public, created_at, updated_at
 		   FROM functions WHERE workspace_id = $1 AND name = $2`,
 		workspaceID, name,
-	).Scan(&f.ID, &f.WorkspaceID, &f.Name, &f.Runtime, &f.DeployType, &f.Code, &f.Image, &f.CreatedAt, &f.UpdatedAt)
+	).Scan(&f.ID, &f.WorkspaceID, &f.Name, &f.Runtime, &f.DeployType, &f.Code, &f.Image, &f.Public, &f.CreatedAt, &f.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -294,7 +295,7 @@ func (d *DB) GetFunction(ctx context.Context, workspaceID int64, name string) (*
 
 func (d *DB) ListFunctions(ctx context.Context, workspaceID int64) ([]*Function, error) {
 	rows, err := d.pool.QueryContext(ctx,
-		`SELECT id, workspace_id, name, runtime, deploy_type, COALESCE(code,''), COALESCE(image,''), created_at, updated_at
+		`SELECT id, workspace_id, name, runtime, deploy_type, COALESCE(code,''), COALESCE(image,''), public, created_at, updated_at
 		   FROM functions WHERE workspace_id = $1 ORDER BY created_at`,
 		workspaceID,
 	)
@@ -306,7 +307,7 @@ func (d *DB) ListFunctions(ctx context.Context, workspaceID int64) ([]*Function,
 	var functions []*Function
 	for rows.Next() {
 		f := &Function{}
-		if err := rows.Scan(&f.ID, &f.WorkspaceID, &f.Name, &f.Runtime, &f.DeployType, &f.Code, &f.Image, &f.CreatedAt, &f.UpdatedAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.WorkspaceID, &f.Name, &f.Runtime, &f.DeployType, &f.Code, &f.Image, &f.Public, &f.CreatedAt, &f.UpdatedAt); err != nil {
 			return nil, err
 		}
 		functions = append(functions, f)
@@ -314,15 +315,15 @@ func (d *DB) ListFunctions(ctx context.Context, workspaceID int64) ([]*Function,
 	return functions, rows.Err()
 }
 
-func (d *DB) UpdateFunction(ctx context.Context, workspaceID int64, name, code, image string) (*Function, error) {
+func (d *DB) UpdateFunction(ctx context.Context, workspaceID int64, name, code, image string, public bool) (*Function, error) {
 	f := &Function{}
 	err := d.pool.QueryRowContext(ctx,
 		`UPDATE functions
-		    SET code = $3, image = $4, updated_at = NOW()
+		    SET code = $3, image = $4, public = $5, updated_at = NOW()
 		  WHERE workspace_id = $1 AND name = $2
-		  RETURNING id, workspace_id, name, runtime, deploy_type, COALESCE(code,''), COALESCE(image,''), created_at, updated_at`,
-		workspaceID, name, nullableString(code), nullableString(image),
-	).Scan(&f.ID, &f.WorkspaceID, &f.Name, &f.Runtime, &f.DeployType, &f.Code, &f.Image, &f.CreatedAt, &f.UpdatedAt)
+		  RETURNING id, workspace_id, name, runtime, deploy_type, COALESCE(code,''), COALESCE(image,''), public, created_at, updated_at`,
+		workspaceID, name, nullableString(code), nullableString(image), public,
+	).Scan(&f.ID, &f.WorkspaceID, &f.Name, &f.Runtime, &f.DeployType, &f.Code, &f.Image, &f.Public, &f.CreatedAt, &f.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

@@ -67,7 +67,7 @@ func (s *FunctionService) Create(ctx context.Context, req *model.CreateFunctionR
 		return nil, fmt.Errorf("ensure rbac: %w", err)
 	}
 
-	dbFn, err := s.db.CreateFunction(ctx, wsID, req.Name, string(req.Runtime), string(req.DeployType), req.Code, req.Image)
+	dbFn, err := s.db.CreateFunction(ctx, wsID, req.Name, string(req.Runtime), string(req.DeployType), req.Code, req.Image, req.Public)
 	if err != nil {
 		return nil, fmt.Errorf("save function: %w", err)
 	}
@@ -156,14 +156,18 @@ func (s *FunctionService) Update(ctx context.Context, name string, req *model.Up
 
 	code := dbFn.Code
 	image := dbFn.Image
+	public := dbFn.Public
 	if req.Code != "" {
 		code = req.Code
 	}
 	if req.Image != "" {
 		image = req.Image
 	}
+	if req.Public != nil {
+		public = *req.Public
+	}
 
-	updatedFn, err := s.db.UpdateFunction(ctx, wsID, name, code, image)
+	updatedFn, err := s.db.UpdateFunction(ctx, wsID, name, code, image, public)
 	if err != nil {
 		return nil, fmt.Errorf("update function: %w", err)
 	}
@@ -213,6 +217,7 @@ func dbFunctionToModel(f *db.Function) *model.Function {
 		DeployType: model.DeployType(f.DeployType),
 		Code:       f.Code,
 		Image:      f.Image,
+		Public:     f.Public,
 		Status:     model.StatusPending,
 		CreatedAt:  f.CreatedAt,
 		UpdatedAt:  f.UpdatedAt,

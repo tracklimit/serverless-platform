@@ -23,6 +23,8 @@ const (
 	labelManagedBy  = "app.kubernetes.io/managed-by"
 	labelRuntime    = "platform.tracklimit.io/runtime"
 	labelDeployType = "platform.tracklimit.io/deploy-type"
+
+	annotationVisibility = "networking.knative.dev/visibility"
 )
 
 type KnativeDeployer struct {
@@ -174,8 +176,11 @@ func (d *KnativeDeployer) Deploy(ctx context.Context, namespace string, fn *mode
 		if existing.Annotations == nil {
 			existing.Annotations = map[string]string{}
 		}
-		for k, v := range ksvc.Annotations {
-			existing.Annotations[k] = v
+		// Visibility annotation must be explicitly removed when switching to public.
+		if fn.Public {
+			delete(existing.Annotations, annotationVisibility)
+		} else {
+			existing.Annotations[annotationVisibility] = "cluster-local"
 		}
 		updated, err := d.servingClient.ServingV1().Services(namespace).Update(ctx, existing, metav1.UpdateOptions{})
 		if err != nil {
@@ -316,11 +321,17 @@ func (d *KnativeDeployer) buildService(namespace string, fn *model.Function, svc
 		labelDeployType: string(fn.DeployType),
 	}
 
+	annotations := map[string]string{}
+	if !fn.Public {
+		annotations[annotationVisibility] = "cluster-local"
+	}
+
 	return &servingv1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      svcName,
-			Namespace: namespace,
-			Labels:    labels,
+			Name:        svcName,
+			Namespace:   namespace,
+			Labels:      labels,
+			Annotations: annotations,
 		},
 		Spec: servingv1.ServiceSpec{
 			ConfigurationSpec: servingv1.ConfigurationSpec{

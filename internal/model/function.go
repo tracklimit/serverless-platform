@@ -36,6 +36,7 @@ type Function struct {
 	DeployType DeployType `json:"deploy_type"`
 	Code       string     `json:"code,omitempty"`
 	Image      string     `json:"image,omitempty"`
+	Public     bool       `json:"public"`
 	Status     Status     `json:"status"`
 	URL        string     `json:"url,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`
@@ -48,16 +49,18 @@ type CreateFunctionRequest struct {
 	DeployType DeployType `json:"deploy_type"`
 	Code       string     `json:"code,omitempty"`
 	Image      string     `json:"image,omitempty"`
+	Public     bool       `json:"public"`
 }
 
 type UpdateFunctionRequest struct {
-	Code  string `json:"code,omitempty"`
-	Image string `json:"image,omitempty"`
+	Code   string `json:"code,omitempty"`
+	Image  string `json:"image,omitempty"`
+	Public *bool  `json:"public"`
 }
 
 func (r *UpdateFunctionRequest) Validate(existing *Function) error {
-	if r.Code == "" && r.Image == "" {
-		return fmt.Errorf("code or image is required")
+	if r.Code == "" && r.Image == "" && r.Public == nil {
+		return fmt.Errorf("at least one field must be provided")
 	}
 	if existing.DeployType == DeployTypeManaged && r.Image != "" {
 		return fmt.Errorf("cannot change image for managed function")
