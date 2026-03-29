@@ -7,6 +7,7 @@ import (
 )
 
 type Config struct {
+	Environment   string
 	Port          string
 	PlatformNS    string
 	DatabaseDSN   string
@@ -16,6 +17,11 @@ type Config struct {
 }
 
 func Load() *Config {
+	env := os.Getenv("ENVIRONMENT")
+	if env == "" {
+		env = "development"
+	}
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -37,6 +43,7 @@ func Load() *Config {
 	}
 
 	return &Config{
+		Environment:   env,
 		Port:          port,
 		PlatformNS:    platformNS,
 		DatabaseDSN:   os.Getenv("DATABASE_DSN"),

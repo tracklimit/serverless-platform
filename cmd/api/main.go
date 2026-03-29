@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"serverless-platform/internal/logging"
 	"syscall"
 	"time"
 
@@ -32,9 +33,12 @@ import (
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-
 	cfg := config.Load()
+
+	logger := logging.New(cfg.Environment)
+	slog.SetDefault(logger)
+
+	slog.Info("starting platform API", "environment", cfg.Environment, "port", cfg.Port)
 
 	k8sCfg, err := kubeConfig()
 	if err != nil {
