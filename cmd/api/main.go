@@ -7,9 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"os/signal"
 	"serverless-platform/internal/logging"
-	"syscall"
+	"serverless-platform/internal/shutdown"
 	"time"
 
 	customMiddleware "serverless-platform/internal/middleware"
@@ -65,8 +64,6 @@ func main() {
 		logger.Error("failed to connect to database", "error", err)
 		os.Exit(1)
 	}
-	defer func() { _ = database.Close() }()
-
 	if err := db.RunMigrations(database); err != nil {
 		logger.Error("failed to run migrations", "error", err)
 		os.Exit(1)
@@ -142,25 +139,20 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	done := make(chan os.Signal, 1)
-	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
+	sm := shutdown.NewManager(shutdown.DefaultTimeout)
+	sm.Register("database", database)
 
 	go func() {
-		logger.Info("starting server", "port", cfg.Port)
+		slog.Info("starting server", "port", cfg.Port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("server error", "error", err)
+			slog.Error("server error", "error", err)
 			os.Exit(1)
 		}
 	}()
 
-	<-done
-	logger.Info("shutting down")
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		logger.Error("shutdown error", "error", err)
+	if err := sm.Wait(server); err != nil {
+		slog.Error("shutdown timed out", "error", err)
+		os.Exit(1)
 	}
 }
 
