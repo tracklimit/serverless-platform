@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	customMiddleware "serverless-platform/internal/middleware"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
@@ -94,6 +96,8 @@ func main() {
 	metricsHandler := handler.NewMetricsHandler(cfg.PrometheusURL)
 
 	r := chi.NewRouter()
+	r.Use(customMiddleware.RequestID)
+	r.Use(customMiddleware.Logger(logger, "/health", "/readyz"))
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RealIP)
 	r.Use(cors.Handler(cors.Options{
