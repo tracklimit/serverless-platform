@@ -171,7 +171,7 @@ func kubeConfig() (*rest.Config, error) {
 
 func loadOrCreateSigningKey(kubeClient kubernetes.Interface, namespace string) ([]byte, error) {
 	ctx := context.Background()
-	secretName := "jwt-signing-key"
+	secretName := "jwt-signing-key" //nolint:gosec // K8s Secret resource name, not a credential
 
 	secret, err := kubeClient.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
 	if err == nil {

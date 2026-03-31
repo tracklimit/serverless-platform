@@ -10,23 +10,68 @@ on:
       - "go.mod"
       - "go.sum"
       - "Dockerfile"
+      - "migrations/**"
+      - ".golangci.yml"
+  pull_request:
+    paths:
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+      - "migrations/**"
+      - ".golangci.yml"
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/serverless-platform
 
 jobs:
-  test:
+  check:
+    name: Lint & Test
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U test"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go test ./...
+
+      - name: Install golang-migrate
+        run: |
+          curl -L https://github.com/golang-migrate/migrate/releases/latest/download/migrate.linux-amd64.tar.gz | tar xz
+          sudo mv migrate /usr/local/bin/migrate
+
+      - name: Run migrations
+        env:
+          DATABASE_URL: postgres://test:test@localhost:5432/test?sslmode=disable
+        run: make migrate-up
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v7
+
+      - name: Run tests
+        env:
+          DATABASE_URL: postgres://test:test@localhost:5432/test?sslmode=disable
+          ENVIRONMENT: test
+        run: go test ./... -race -count=1
 
   build:
-    needs: test
+    needs: check
     runs-on: ubuntu-latest
     permissions:
       contents: read

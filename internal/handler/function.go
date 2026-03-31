@@ -115,14 +115,14 @@ func (h *FunctionHandler) Invoke(w http.ResponseWriter, r *http.Request) {
 
 	targetURL := h.svc.InvokeURL(r.Context(), name)
 
-	proxyReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, targetURL, r.Body)
+	proxyReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, targetURL, r.Body) //nolint:gosec // targetURL is from deployer.InvokeURL, not user input
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create proxy request")
 		return
 	}
 	proxyReq.Header.Set("Content-Type", r.Header.Get("Content-Type"))
 
-	resp, err := http.DefaultClient.Do(proxyReq)
+	resp, err := http.DefaultClient.Do(proxyReq) //nolint:gosec // targetURL is from deployer.InvokeURL, not user input
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "function invocation failed: "+err.Error())
 		return

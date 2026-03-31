@@ -9,6 +9,7 @@ require (
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.10.9
+	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.48.0
 	k8s.io/api v0.35.1
 	k8s.io/apimachinery v0.35.1

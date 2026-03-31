@@ -452,10 +452,10 @@ func serviceToFunction(svc *servingv1.Service) *model.Function {
 func knativeStatus(svc *servingv1.Service) model.Status {
 	for _, cond := range svc.Status.Conditions {
 		if cond.Type == "Ready" {
-			switch {
-			case cond.Status == corev1.ConditionTrue:
+			switch cond.Status {
+			case corev1.ConditionTrue:
 				return model.StatusReady
-			case cond.Status == corev1.ConditionFalse:
+			case corev1.ConditionFalse:
 				return model.StatusFailed
 			default:
 				return model.StatusDeploying
