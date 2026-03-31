@@ -1,16 +1,38 @@
 package db
 
 import (
-	_ "embed"
-	"fmt"
+	"errors"
+	"log/slog"
+
+	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 )
 
-//go:embed migrations/001_init.sql
-var schema string
-
-func RunMigrations(d *DB) error {
-	if _, err := d.pool.Exec(schema); err != nil {
-		return fmt.Errorf("run schema migration: %w", err)
+func RunMigrations(d *DB, migrationsPath string) error {
+	driver, err := postgres.WithInstance(d.pool, &postgres.Config{})
+	if err != nil {
+		return err
 	}
+
+	m, err := migrate.NewWithDatabaseInstance(
+		"file://"+migrationsPath,
+		"postgres",
+		driver,
+	)
+	if err != nil {
+		return err
+	}
+
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return err
+	}
+
+	version, dirty, _ := m.Version()
+	slog.Info("database migrations applied",
+		"version", version,
+		"dirty", dirty,
+	)
+
 	return nil
 }

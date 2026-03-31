@@ -64,7 +64,7 @@ func main() {
 		logger.Error("failed to connect to database", "error", err)
 		os.Exit(1)
 	}
-	if err := db.RunMigrations(database); err != nil {
+	if err := db.RunMigrations(database, "migrations"); err != nil {
 		logger.Error("failed to run migrations", "error", err)
 		os.Exit(1)
 	}
