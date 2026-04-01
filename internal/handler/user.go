@@ -8,6 +8,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"serverless-platform/internal/db"
+	"serverless-platform/internal/pagination"
 )
 
 type UserHandler struct {
@@ -40,11 +41,17 @@ type userResponse struct {
 }
 
 func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
-	users, err := h.db.ListUsers(r.Context())
+	params := pagination.Parse(r)
+
+	users, total, err := h.db.ListUsers(r.Context(), db.ListUsersParams{
+		Limit:  params.Limit,
+		Offset: params.Offset,
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list users")
 		return
 	}
+
 	resp := make([]userResponse, 0, len(users))
 	for _, u := range users {
 		resp = append(resp, userResponse{
@@ -54,7 +61,12 @@ func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 			CreatedAt: u.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		})
 	}
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, http.StatusOK, pagination.Response{
+		Items:      resp,
+		TotalCount: total,
+		Limit:      params.Limit,
+		Offset:     params.Offset,
+	})
 }
 
 func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {

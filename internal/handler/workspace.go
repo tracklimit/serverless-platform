@@ -9,6 +9,7 @@ import (
 	"serverless-platform/internal/auth"
 	"serverless-platform/internal/db"
 	"serverless-platform/internal/deployer"
+	"serverless-platform/internal/pagination"
 )
 
 type WorkspaceHandler struct {
@@ -62,11 +63,19 @@ type memberResponse struct {
 }
 
 func (h *WorkspaceHandler) List(w http.ResponseWriter, r *http.Request) {
-	workspaces, err := h.db.ListWorkspaces(r.Context())
+	params := pagination.Parse(r)
+
+	workspaces, total, err := h.db.ListWorkspaces(r.Context(), db.ListWorkspacesParams{
+		Limit:  params.Limit,
+		Offset: params.Offset,
+		Sort:   params.Sort,
+		Order:  params.Order,
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list workspaces")
 		return
 	}
+
 	resp := make([]workspaceResponse, 0, len(workspaces))
 	for _, ws := range workspaces {
 		resp = append(resp, workspaceResponse{
@@ -76,7 +85,12 @@ func (h *WorkspaceHandler) List(w http.ResponseWriter, r *http.Request) {
 			CreatedAt: ws.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		})
 	}
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, http.StatusOK, pagination.Response{
+		Items:      resp,
+		TotalCount: total,
+		Limit:      params.Limit,
+		Offset:     params.Offset,
+	})
 }
 
 func (h *WorkspaceHandler) Create(w http.ResponseWriter, r *http.Request) {

@@ -107,33 +107,47 @@ func (s *FunctionService) Get(ctx context.Context, name string) (*model.Function
 	return fn, nil
 }
 
-func (s *FunctionService) List(ctx context.Context) ([]*model.Function, error) {
+// ListParams holds pagination and filter parameters for the function service.
+type ListParams struct {
+	Limit      int
+	Offset     int
+	Sort       string
+	Order      string
+	Runtime    string
+	DeployType string
+}
+
+func (s *FunctionService) List(ctx context.Context, params ListParams) ([]*model.Function, int, error) {
 	wsID, err := s.workspaceID(ctx)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	dbFns, err := s.db.ListFunctions(ctx, wsID)
+	dbFunctions, total, err := s.db.ListFunctions(ctx, db.ListFunctionsParams{
+		WorkspaceID: wsID,
+		Limit:       params.Limit,
+		Offset:      params.Offset,
+		Sort:        params.Sort,
+		Order:       params.Order,
+		Runtime:     params.Runtime,
+		DeployType:  params.DeployType,
+	})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	kFns, _ := s.deployer.List(ctx, s.namespace(ctx))
-	kByName := make(map[string]*model.Function, len(kFns))
-	for _, kFn := range kFns {
-		kByName[kFn.Name] = kFn
-	}
-
-	result := make([]*model.Function, 0, len(dbFns))
-	for _, dbFn := range dbFns {
-		fn := dbFunctionToModel(dbFn)
-		if kFn, ok := kByName[dbFn.Name]; ok {
-			fn.Status = kFn.Status
-			fn.URL = kFn.URL
+	ns := s.namespace(ctx)
+	functions := make([]*model.Function, 0, len(dbFunctions))
+	for _, f := range dbFunctions {
+		fn := dbFunctionToModel(f)
+		if ksvc, err := s.deployer.Get(ctx, ns, f.Name); err == nil && ksvc != nil {
+			fn.Status = ksvc.Status
+			fn.URL = ksvc.URL
 		}
-		result = append(result, fn)
+		functions = append(functions, fn)
 	}
-	return result, nil
+
+	return functions, total, nil
 }
 
 func (s *FunctionService) Update(ctx context.Context, name string, req *model.UpdateFunctionRequest) (*model.Function, error) {

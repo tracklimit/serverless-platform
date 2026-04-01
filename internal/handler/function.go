@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"serverless-platform/internal/pagination"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
@@ -66,7 +67,16 @@ func (h *FunctionHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *FunctionHandler) List(w http.ResponseWriter, r *http.Request) {
-	functions, err := h.svc.List(r.Context())
+	params := pagination.Parse(r)
+
+	functions, total, err := h.svc.List(r.Context(), service.ListParams{
+		Limit:      params.Limit,
+		Offset:     params.Offset,
+		Sort:       params.Sort,
+		Order:      params.Order,
+		Runtime:    r.URL.Query().Get("runtime"),
+		DeployType: r.URL.Query().Get("deploy_type"),
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -75,7 +85,12 @@ func (h *FunctionHandler) List(w http.ResponseWriter, r *http.Request) {
 		functions = []*model.Function{}
 	}
 
-	writeJSON(w, http.StatusOK, functions)
+	writeJSON(w, http.StatusOK, pagination.Response{
+		Items:      functions,
+		TotalCount: total,
+		Limit:      params.Limit,
+		Offset:     params.Offset,
+	})
 }
 
 func (h *FunctionHandler) Update(w http.ResponseWriter, r *http.Request) {
