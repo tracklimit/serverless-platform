@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"serverless-platform/internal/auth"
+	"serverless-platform/internal/cache"
 	"serverless-platform/internal/pagination"
 	"strconv"
 
@@ -14,11 +16,12 @@ import (
 )
 
 type FunctionHandler struct {
-	svc *service.FunctionService
+	svc   *service.FunctionService
+	cache cache.Store
 }
 
-func NewFunctionHandler(svc *service.FunctionService) *FunctionHandler {
-	return &FunctionHandler{svc: svc}
+func NewFunctionHandler(svc *service.FunctionService, cacheStore cache.Store) *FunctionHandler {
+	return &FunctionHandler{svc: svc, cache: cacheStore}
 }
 
 func (h *FunctionHandler) Routes(metrics *MetricsHandler) chi.Router {
@@ -46,6 +49,9 @@ func (h *FunctionHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
+
+	workspace := auth.WorkspaceSlugFromContext(r.Context())
+	_ = h.cache.Invalidate(r.Context(), "cache:"+workspace+":*")
 
 	writeJSON(w, http.StatusCreated, fn)
 }
@@ -111,6 +117,9 @@ func (h *FunctionHandler) Update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "function not found")
 		return
 	}
+
+	workspace := auth.WorkspaceSlugFromContext(r.Context())
+	_ = h.cache.Invalidate(r.Context(), "cache:"+workspace+":*")
 
 	writeJSON(w, http.StatusOK, fn)
 }

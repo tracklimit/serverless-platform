@@ -26,10 +26,12 @@ import (
 	servingclient "knative.dev/serving/pkg/client/clientset/versioned"
 
 	"serverless-platform/internal/auth"
+	"serverless-platform/internal/cache"
 	"serverless-platform/internal/config"
 	"serverless-platform/internal/db"
 	"serverless-platform/internal/deployer"
 	"serverless-platform/internal/handler"
+	"serverless-platform/internal/ratelimit"
 	"serverless-platform/internal/service"
 )
 
@@ -84,12 +86,14 @@ func main() {
 
 	dep := deployer.NewKnativeDeployer(kubeClient, servingClient, cfg.PlatformNS)
 	svc := service.NewFunctionService(database, dep, logger)
+	cacheStore := cache.NewNoOpStore()
+	limiter := ratelimit.NewInMemoryLimiter(60, time.Minute)
 
 	healthHandler := handler.NewHealthHandler(kubeClient)
 	authHandler := handler.NewAuthHandler(database, tokenService)
 	userHandler := handler.NewUserHandler(database)
 	workspaceHandler := handler.NewWorkspaceHandler(database, dep)
-	functionHandler := handler.NewFunctionHandler(svc)
+	functionHandler := handler.NewFunctionHandler(svc, cacheStore)
 	metricsHandler := handler.NewMetricsHandler(cfg.PrometheusURL)
 
 	r := chi.NewRouter()
@@ -114,6 +118,7 @@ func main() {
 	// Authenticated routes
 	r.Group(func(r chi.Router) {
 		r.Use(auth.Middleware(tokenService))
+		r.Use(customMiddleware.RateLimit(limiter))
 		r.Post("/api/v1/auth/change-password", authHandler.ChangePassword)
 
 		// Admin-only routes
@@ -126,6 +131,7 @@ func main() {
 		// Workspace-scoped routes
 		r.Group(func(r chi.Router) {
 			r.Use(auth.WorkspaceRequired)
+			r.Use(customMiddleware.Cache(cacheStore, 30*time.Second))
 			r.Mount("/api/v1/functions", functionHandler.Routes(metricsHandler))
 			r.Mount("/api/v1/workspace", workspaceHandler.OwnerRoutes())
 		})
