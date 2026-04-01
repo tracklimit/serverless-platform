@@ -59,3 +59,7 @@ func WorkspaceSlugFromContext(ctx context.Context) string {
 	v, _ := ctx.Value(workspaceSlugContextKey).(string)
 	return v
 }
+
+func WithUsername(ctx context.Context, username string) context.Context {
+	return context.WithValue(ctx, usernameContextKey, username)
+}
