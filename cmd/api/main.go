@@ -31,6 +31,7 @@ import (
 	"serverless-platform/internal/db"
 	"serverless-platform/internal/deployer"
 	"serverless-platform/internal/handler"
+	natspkg "serverless-platform/internal/nats"
 	"serverless-platform/internal/ratelimit"
 	"serverless-platform/internal/service"
 )
@@ -84,8 +85,19 @@ func main() {
 
 	tokenService := auth.NewTokenService(signingKey, cfg.JWTExpiry)
 
+	natsClient, err := natspkg.NewClient(cfg.NatsURL, cfg.NatsToken)
+	if err != nil {
+		logger.Error("failed to connect to nats", "error", err)
+		os.Exit(1)
+	}
+	if _, err := natsClient.EnsureStream(context.Background()); err != nil {
+		logger.Error("failed to ensure nats stream", "error", err)
+		os.Exit(1)
+	}
+
+	natsPublisher := natspkg.NewPublisher(natsClient)
 	dep := deployer.NewKnativeDeployer(kubeClient, servingClient, cfg.PlatformNS)
-	svc := service.NewFunctionService(database, dep, logger)
+	svc := service.NewFunctionService(database, dep, natsPublisher, logger)
 	cacheStore := cache.NewNoOpStore()
 	limiter := ratelimit.NewInMemoryLimiter(60, time.Minute)
 
@@ -94,6 +106,7 @@ func main() {
 	userHandler := handler.NewUserHandler(database)
 	workspaceHandler := handler.NewWorkspaceHandler(database, dep)
 	functionHandler := handler.NewFunctionHandler(svc, cacheStore)
+	deploymentHandler := handler.NewDeploymentHandler(database)
 	metricsHandler := handler.NewMetricsHandler(cfg.PrometheusURL)
 
 	r := chi.NewRouter()
@@ -134,6 +147,8 @@ func main() {
 			r.Use(customMiddleware.Cache(cacheStore, 30*time.Second))
 			r.Mount("/api/v1/functions", functionHandler.Routes(metricsHandler))
 			r.Mount("/api/v1/workspace", workspaceHandler.OwnerRoutes())
+			r.Get("/api/v1/deploys/{id}", deploymentHandler.Get)
+			r.Get("/api/v1/functions/{name}/deploys", deploymentHandler.ListByFunction)
 		})
 	})
 
@@ -147,6 +162,7 @@ func main() {
 
 	sm := shutdown.NewManager(shutdown.DefaultTimeout)
 	sm.Register("database", database)
+	sm.Register("nats", natsClient)
 
 	go func() {
 		slog.Info("starting server", "port", cfg.Port)

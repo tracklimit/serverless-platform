@@ -9,19 +9,22 @@ import (
 	"serverless-platform/internal/db"
 	"serverless-platform/internal/deployer"
 	"serverless-platform/internal/model"
+	natspkg "serverless-platform/internal/nats"
 )
 
 type FunctionService struct {
-	db       *db.DB
-	deployer *deployer.KnativeDeployer
-	logger   *slog.Logger
+	db        *db.DB
+	deployer  *deployer.KnativeDeployer
+	publisher *natspkg.Publisher
+	logger    *slog.Logger
 }
 
-func NewFunctionService(database *db.DB, dep *deployer.KnativeDeployer, logger *slog.Logger) *FunctionService {
+func NewFunctionService(database *db.DB, dep *deployer.KnativeDeployer, pub *natspkg.Publisher, logger *slog.Logger) *FunctionService {
 	return &FunctionService{
-		db:       database,
-		deployer: dep,
-		logger:   logger,
+		db:        database,
+		deployer:  dep,
+		publisher: pub,
+		logger:    logger,
 	}
 }
 
@@ -41,48 +44,63 @@ func (s *FunctionService) workspaceID(ctx context.Context) (int64, error) {
 	return ws.ID, nil
 }
 
-func (s *FunctionService) Create(ctx context.Context, req *model.CreateFunctionRequest) (*model.Function, error) {
+func (s *FunctionService) Create(ctx context.Context, req *model.CreateFunctionRequest) (*model.Function, *model.Deployment, error) {
 	if err := req.Validate(); err != nil {
-		return nil, fmt.Errorf("validation: %w", err)
+		return nil, nil, fmt.Errorf("validation: %w", err)
 	}
 
 	wsID, err := s.workspaceID(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	existing, err := s.db.GetFunction(ctx, wsID, req.Name)
 	if err != nil {
-		return nil, fmt.Errorf("check existing: %w", err)
+		return nil, nil, fmt.Errorf("check existing: %w", err)
 	}
 	if existing != nil {
-		return nil, fmt.Errorf("function %q already exists", req.Name)
-	}
-
-	ns := s.namespace(ctx)
-	if err := s.deployer.EnsureNamespace(ctx, ns); err != nil {
-		return nil, fmt.Errorf("ensure namespace: %w", err)
-	}
-	if err := s.deployer.EnsureNamespaceRBAC(ctx, ns); err != nil {
-		return nil, fmt.Errorf("ensure rbac: %w", err)
+		return nil, nil, fmt.Errorf("function %q already exists", req.Name)
 	}
 
 	dbFn, err := s.db.CreateFunction(ctx, wsID, req.Name, string(req.Runtime), string(req.DeployType), req.Code, req.Image, req.Public)
 	if err != nil {
-		return nil, fmt.Errorf("save function: %w", err)
+		return nil, nil, fmt.Errorf("save function: %w", err)
+	}
+
+	dep, err := s.db.CreateDeployment(ctx, dbFn.ID, wsID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create deployment: %w", err)
+	}
+
+	deployReq := &natspkg.DeployRequest{
+		DeploymentID: dep.ID,
+		WorkspaceID:  wsID,
+		FunctionName: req.Name,
+		Namespace:    s.namespace(ctx),
+		Runtime:      string(req.Runtime),
+		DeployType:   string(req.DeployType),
+		Code:         req.Code,
+		Image:        req.Image,
+		Public:       req.Public,
+	}
+	if err := s.publisher.PublishDeployRequest(ctx, deployReq); err != nil {
+		s.logger.Error("failed to publish deploy request", "error", err, "deployment_id", dep.ID)
+		_ = s.db.UpdateDeploymentError(ctx, dep.ID, "failed to queue deployment")
+		return nil, nil, fmt.Errorf("queue deployment: %w", err)
 	}
 
 	fn := dbFunctionToModel(dbFn)
-	url, err := s.deployer.Deploy(ctx, ns, fn)
-	if err != nil {
-		_ = s.db.DeleteFunction(ctx, wsID, req.Name)
-		return nil, fmt.Errorf("deploy: %w", err)
+	fn.Status = model.StatusPending
+
+	deployment := &model.Deployment{
+		ID:         dep.ID,
+		FunctionID: dbFn.ID,
+		Status:     model.DeployStatusQueued,
+		CreatedAt:  dep.CreatedAt,
 	}
 
-	fn.URL = url
-	fn.Status = model.StatusDeploying
-	s.logger.Info("function created", "name", fn.Name, "namespace", ns)
-	return fn, nil
+	s.logger.Info("deployment queued", "function", req.Name, "deployment_id", dep.ID)
+	return fn, deployment, nil
 }
 
 func (s *FunctionService) Get(ctx context.Context, name string) (*model.Function, error) {
@@ -150,22 +168,22 @@ func (s *FunctionService) List(ctx context.Context, params ListParams) ([]*model
 	return functions, total, nil
 }
 
-func (s *FunctionService) Update(ctx context.Context, name string, req *model.UpdateFunctionRequest) (*model.Function, error) {
+func (s *FunctionService) Update(ctx context.Context, name string, req *model.UpdateFunctionRequest) (*model.Function, *model.Deployment, error) {
 	wsID, err := s.workspaceID(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	dbFn, err := s.db.GetFunction(ctx, wsID, name)
 	if err != nil {
-		return nil, fmt.Errorf("get function: %w", err)
+		return nil, nil, fmt.Errorf("get function: %w", err)
 	}
 	if dbFn == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	if err := req.Validate(dbFunctionToModel(dbFn)); err != nil {
-		return nil, fmt.Errorf("validation: %w", err)
+		return nil, nil, fmt.Errorf("validation: %w", err)
 	}
 
 	code := dbFn.Code
@@ -183,19 +201,46 @@ func (s *FunctionService) Update(ctx context.Context, name string, req *model.Up
 
 	updatedFn, err := s.db.UpdateFunction(ctx, wsID, name, code, image, public)
 	if err != nil {
-		return nil, fmt.Errorf("update function: %w", err)
+		return nil, nil, fmt.Errorf("update function: %w", err)
+	}
+	if updatedFn == nil {
+		return nil, nil, nil
+	}
+
+	dep, err := s.db.CreateDeployment(ctx, updatedFn.ID, wsID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create deployment: %w", err)
+	}
+
+	deployReq := &natspkg.DeployRequest{
+		DeploymentID: dep.ID,
+		WorkspaceID:  wsID,
+		FunctionName: name,
+		Namespace:    s.namespace(ctx),
+		Runtime:      updatedFn.Runtime,
+		DeployType:   updatedFn.DeployType,
+		Code:         code,
+		Image:        image,
+		Public:       public,
+	}
+	if err := s.publisher.PublishDeployRequest(ctx, deployReq); err != nil {
+		s.logger.Error("failed to publish deploy request", "error", err, "deployment_id", dep.ID)
+		_ = s.db.UpdateDeploymentError(ctx, dep.ID, "failed to queue deployment")
+		return nil, nil, fmt.Errorf("queue deployment: %w", err)
 	}
 
 	fn := dbFunctionToModel(updatedFn)
-	url, err := s.deployer.Deploy(ctx, s.namespace(ctx), fn)
-	if err != nil {
-		return nil, fmt.Errorf("redeploy: %w", err)
+	fn.Status = model.StatusPending
+
+	deployment := &model.Deployment{
+		ID:         dep.ID,
+		FunctionID: updatedFn.ID,
+		Status:     model.DeployStatusQueued,
+		CreatedAt:  dep.CreatedAt,
 	}
 
-	fn.URL = url
-	fn.Status = model.StatusDeploying
-	s.logger.Info("function updated", "name", name)
-	return fn, nil
+	s.logger.Info("deployment queued", "function", name, "deployment_id", dep.ID)
+	return fn, deployment, nil
 }
 
 func (s *FunctionService) Delete(ctx context.Context, name string) error {

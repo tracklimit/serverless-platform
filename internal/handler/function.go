@@ -44,7 +44,7 @@ func (h *FunctionHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fn, err := h.svc.Create(r.Context(), &req)
+	fn, deployment, err := h.svc.Create(r.Context(), &req)
 	if err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
@@ -53,7 +53,10 @@ func (h *FunctionHandler) Create(w http.ResponseWriter, r *http.Request) {
 	workspace := auth.WorkspaceSlugFromContext(r.Context())
 	_ = h.cache.Invalidate(r.Context(), "cache:"+workspace+":*")
 
-	writeJSON(w, http.StatusCreated, fn)
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"function":   fn,
+		"deployment": deployment,
+	})
 }
 
 func (h *FunctionHandler) Get(w http.ResponseWriter, r *http.Request) {
@@ -108,7 +111,7 @@ func (h *FunctionHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fn, err := h.svc.Update(r.Context(), name, &req)
+	fn, deployment, err := h.svc.Update(r.Context(), name, &req)
 	if err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
@@ -121,7 +124,10 @@ func (h *FunctionHandler) Update(w http.ResponseWriter, r *http.Request) {
 	workspace := auth.WorkspaceSlugFromContext(r.Context())
 	_ = h.cache.Invalidate(r.Context(), "cache:"+workspace+":*")
 
-	writeJSON(w, http.StatusOK, fn)
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"function":   fn,
+		"deployment": deployment,
+	})
 }
 
 func (h *FunctionHandler) Invoke(w http.ResponseWriter, r *http.Request) {
