@@ -14,6 +14,8 @@ type Config struct {
 	PrometheusURL string
 	JWTExpiry     time.Duration
 	CORSOrigins   []string
+	NatsURL       string
+	NatsToken     string
 }
 
 func Load() *Config {
@@ -42,6 +44,11 @@ func Load() *Config {
 		prometheusURL = "http://prometheus-operated.monitoring.svc.cluster.local:9090"
 	}
 
+	natsURL := os.Getenv("NATS_URL")
+	if natsURL == "" {
+		natsURL = "nats://nats.serverless-platform.svc.cluster.local:4222"
+	}
+
 	return &Config{
 		Environment:   env,
 		Port:          port,
@@ -50,5 +57,7 @@ func Load() *Config {
 		PrometheusURL: prometheusURL,
 		JWTExpiry:     24 * time.Hour,
 		CORSOrigins:   corsOrigins,
+		NatsURL:       natsURL,
+		NatsToken:     os.Getenv("NATS_TOKEN"),
 	}
 }
