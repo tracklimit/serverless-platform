@@ -159,6 +159,20 @@ func (d *DB) CreateWorkspace(ctx context.Context, slug, name string) (*Workspace
 	return w, nil
 }
 
+func (d *DB) GetWorkspaceByID(ctx context.Context, id int64) (*Workspace, error) {
+	w := &Workspace{}
+	err := d.pool.QueryRowContext(ctx,
+		`SELECT id, slug, name, created_at FROM workspaces WHERE id = $1`, id,
+	).Scan(&w.ID, &w.Slug, &w.Name, &w.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get workspace by id: %w", err)
+	}
+	return w, nil
+}
+
 func (d *DB) GetWorkspaceBySlug(ctx context.Context, slug string) (*Workspace, error) {
 	w := &Workspace{}
 	err := d.pool.QueryRowContext(ctx,
