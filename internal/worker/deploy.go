@@ -10,23 +10,40 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"serverless-platform/internal/db"
-	"serverless-platform/internal/deployer"
 	"serverless-platform/internal/model"
 	natspkg "serverless-platform/internal/nats"
 )
 
+type store interface {
+	UpdateDeploymentStatus(ctx context.Context, id int64, status string) error
+	UpdateDeploymentError(ctx context.Context, id int64, errMsg string) error
+	ListActiveDeployments(ctx context.Context) ([]*db.Deployment, error)
+	GetFunction(ctx context.Context, workspaceID int64, name string) (*db.Function, error)
+	GetWorkspaceByID(ctx context.Context, id int64) (*db.Workspace, error)
+}
+
+type deployService interface {
+	EnsureNamespace(ctx context.Context, namespace string) error
+	EnsureNamespaceRBAC(ctx context.Context, namespace string) error
+	Deploy(ctx context.Context, namespace string, fn *model.Function) (string, error)
+}
+
+type statusPublisher interface {
+	PublishDeployStatus(ctx context.Context, status *natspkg.DeployStatusEvent) error
+}
+
 type DeployWorker struct {
-	db        *db.DB
-	deployer  *deployer.KnativeDeployer
+	db        store
+	deployer  deployService
 	nats      *natspkg.Client
-	publisher *natspkg.Publisher
+	publisher statusPublisher
 	logger    *slog.Logger
 	consumer  jetstream.Consumer
 }
 
 func NewDeployWorker(
 	database *db.DB,
-	dep *deployer.KnativeDeployer,
+	dep deployService,
 	natsClient *natspkg.Client,
 	pub *natspkg.Publisher,
 	logger *slog.Logger,

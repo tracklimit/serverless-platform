@@ -63,3 +63,7 @@ func WorkspaceSlugFromContext(ctx context.Context) string {
 func WithUsername(ctx context.Context, username string) context.Context {
 	return context.WithValue(ctx, usernameContextKey, username)
 }
+
+func WithWorkspace(ctx context.Context, slug string) context.Context {
+	return context.WithValue(ctx, workspaceSlugContextKey, slug)
+}

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 
@@ -11,11 +12,19 @@ import (
 	"serverless-platform/internal/pagination"
 )
 
-type DeploymentHandler struct {
-	db *db.DB
+// DeploymentStore abstracts database operations for the deployment handler.
+type DeploymentStore interface {
+	GetDeployment(ctx context.Context, id int64) (*db.Deployment, error)
+	GetWorkspaceBySlug(ctx context.Context, slug string) (*db.Workspace, error)
+	GetFunction(ctx context.Context, workspaceID int64, name string) (*db.Function, error)
+	ListDeployments(ctx context.Context, p db.ListDeploymentsParams) ([]*db.Deployment, int, error)
 }
 
-func NewDeploymentHandler(database *db.DB) *DeploymentHandler {
+type DeploymentHandler struct {
+	db DeploymentStore
+}
+
+func NewDeploymentHandler(database DeploymentStore) *DeploymentHandler {
 	return &DeploymentHandler{db: database}
 }
 
