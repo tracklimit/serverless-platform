@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,6 +17,7 @@ import (
 	"serverless-platform/internal/shutdown"
 	"serverless-platform/internal/worker"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -63,6 +65,15 @@ func main() {
 	pub := natspkg.NewPublisher(natsClient)
 
 	w := worker.NewDeployWorker(database, dep, natsClient, pub, logger)
+
+	go func() {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", promhttp.Handler())
+		slog.Info("starting metrics server", "port", "9090")
+		if err := http.ListenAndServe(":9090", mux); err != nil {
+			slog.Error("metrics server error", "error", err)
+		}
+	}()
 
 	sm := shutdown.NewManager(shutdown.DefaultTimeout)
 	sm.Register("database", database)

@@ -11,11 +11,13 @@ import (
 	"serverless-platform/internal/shutdown"
 	"time"
 
+	platformMetrics "serverless-platform/internal/metrics"
 	customMiddleware "serverless-platform/internal/middleware"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/crypto/bcrypt"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -110,6 +112,7 @@ func main() {
 	metricsHandler := handler.NewMetricsHandler(cfg.PrometheusURL)
 
 	r := chi.NewRouter()
+	r.Use(platformMetrics.HTTP)
 	r.Use(customMiddleware.RequestID)
 	r.Use(customMiddleware.Logger(logger, "/health", "/readyz"))
 	r.Use(middleware.Recoverer)
@@ -159,6 +162,15 @@ func main() {
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
+
+	go func() {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", promhttp.Handler())
+		slog.Info("starting metrics server", "port", "9090")
+		if err := http.ListenAndServe(":9090", mux); err != nil {
+			slog.Error("metrics server error", "error", err)
+		}
+	}()
 
 	sm := shutdown.NewManager(shutdown.DefaultTimeout)
 	sm.Register("database", database)
