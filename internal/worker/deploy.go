@@ -10,6 +10,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"serverless-platform/internal/db"
+	"serverless-platform/internal/metrics"
 	"serverless-platform/internal/model"
 	natspkg "serverless-platform/internal/nats"
 )
@@ -80,6 +81,22 @@ func (w *DeployWorker) Start(ctx context.Context) error {
 	}
 	w.consumer = consumer
 
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				info, err := w.consumer.Info(ctx)
+				if err == nil {
+					metrics.DeployQueueDepth.Set(float64(info.NumPending))
+				}
+			}
+		}
+	}()
+
 	// Recovery sweep: resume any deployments that were in-progress when the previous
 	// worker instance terminated. These are database rows with active status but no
 	// corresponding NATS message (the message was already acked or the worker crashed
@@ -117,6 +134,8 @@ func (w *DeployWorker) handleMessage(ctx context.Context, msg jetstream.Msg) {
 	logger := w.logger.With("deployment_id", req.DeploymentID, "function", req.FunctionName)
 	logger.Info("processing deploy request")
 
+	start := time.Now()
+
 	if err := w.executeDeploy(ctx, &req); err != nil {
 		meta, _ := msg.Metadata()
 		if meta == nil {
@@ -128,6 +147,8 @@ func (w *DeployWorker) handleMessage(ctx context.Context, msg jetstream.Msg) {
 			logger.Error("deploy failed after max retries, sending to dead letter", "error", err)
 			_ = w.db.UpdateDeploymentError(ctx, req.DeploymentID, err.Error())
 			w.publishStatus(ctx, &req, string(model.DeployStatusFailed), "", err.Error())
+			metrics.DeployDuration.WithLabelValues("failed").Observe(time.Since(start).Seconds())
+			metrics.DeploysTotal.WithLabelValues("failed").Inc()
 			_ = msg.Term()
 			return
 		}
@@ -136,6 +157,8 @@ func (w *DeployWorker) handleMessage(ctx context.Context, msg jetstream.Msg) {
 		return
 	}
 
+	metrics.DeployDuration.WithLabelValues("success").Observe(time.Since(start).Seconds())
+	metrics.DeploysTotal.WithLabelValues("success").Inc()
 	_ = msg.Ack()
 }
 
