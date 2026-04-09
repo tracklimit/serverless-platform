@@ -16,6 +16,7 @@ type Config struct {
 	CORSOrigins   []string
 	NatsURL       string
 	NatsToken     string
+	OTLPEndpoint  string
 }
 
 func Load() *Config {
@@ -49,6 +50,11 @@ func Load() *Config {
 		natsURL = "nats://nats.serverless-platform.svc.cluster.local:4222"
 	}
 
+	otlpEndpoint := os.Getenv("OTLP_ENDPOINT")
+	if otlpEndpoint == "" {
+		otlpEndpoint = "tempo.monitoring.svc.cluster.local:4317"
+	}
+
 	return &Config{
 		Environment:   env,
 		Port:          port,
@@ -59,5 +65,6 @@ func Load() *Config {
 		CORSOrigins:   corsOrigins,
 		NatsURL:       natsURL,
 		NatsToken:     os.Getenv("NATS_TOKEN"),
+		OTLPEndpoint:  otlpEndpoint,
 	}
 }

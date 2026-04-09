@@ -15,6 +15,7 @@ import (
 	"serverless-platform/internal/logging"
 	natspkg "serverless-platform/internal/nats"
 	"serverless-platform/internal/shutdown"
+	"serverless-platform/internal/tracing"
 	"serverless-platform/internal/worker"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -60,6 +61,17 @@ func main() {
 		slog.Error("failed to connect to nats", "error", err)
 		os.Exit(1)
 	}
+
+	shutdownTracer, err := tracing.Init(context.Background(), "serverless-platform-worker", cfg.OTLPEndpoint)
+	if err != nil {
+		slog.Error("failed to init tracing", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		if err := shutdownTracer(context.Background()); err != nil {
+			slog.Error("tracer shutdown error", "error", err)
+		}
+	}()
 
 	dep := deployer.NewKnativeDeployer(kubeClient, servingClient, cfg.PlatformNS)
 	pub := natspkg.NewPublisher(natsClient)

@@ -36,6 +36,7 @@ import (
 	natspkg "serverless-platform/internal/nats"
 	"serverless-platform/internal/ratelimit"
 	"serverless-platform/internal/service"
+	"serverless-platform/internal/tracing"
 )
 
 func main() {
@@ -97,6 +98,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	shutdownTracer, err := tracing.Init(context.Background(), "serverless-platform-api", cfg.OTLPEndpoint)
+	if err != nil {
+		logger.Error("failed to init tracing", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		if err := shutdownTracer(context.Background()); err != nil {
+			logger.Error("tracer shutdown error", "error", err)
+		}
+	}()
+
 	natsPublisher := natspkg.NewPublisher(natsClient)
 	dep := deployer.NewKnativeDeployer(kubeClient, servingClient, cfg.PlatformNS)
 	svc := service.NewFunctionService(database, dep, natsPublisher, logger)
@@ -112,6 +124,7 @@ func main() {
 	metricsHandler := handler.NewMetricsHandler(cfg.PrometheusURL)
 
 	r := chi.NewRouter()
+	r.Use(tracing.HTTP)
 	r.Use(platformMetrics.HTTP)
 	r.Use(customMiddleware.RequestID)
 	r.Use(customMiddleware.Logger(logger, "/health", "/readyz"))
