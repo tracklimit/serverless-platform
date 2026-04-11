@@ -165,6 +165,7 @@ func main() {
 			r.Mount("/api/v1/workspace", workspaceHandler.OwnerRoutes())
 			r.Get("/api/v1/deploys/{id}", deploymentHandler.Get)
 			r.Get("/api/v1/functions/{name}/deploys", deploymentHandler.ListByFunction)
+			r.Get("/api/v1/metrics/query_range", metricsHandler.QueryRange)
 		})
 	})
 
