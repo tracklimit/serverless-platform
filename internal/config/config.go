@@ -12,6 +12,7 @@ type Config struct {
 	PlatformNS    string
 	DatabaseDSN   string
 	PrometheusURL string
+	LokiURL       string
 	JWTExpiry     time.Duration
 	CORSOrigins   []string
 	NatsURL       string
@@ -45,6 +46,11 @@ func Load() *Config {
 		prometheusURL = "http://prometheus-operated.monitoring.svc.cluster.local:9090"
 	}
 
+	lokiURL := os.Getenv("LOKI_URL")
+	if lokiURL == "" {
+		lokiURL = "http://loki.monitoring.svc.cluster.local:3100"
+	}
+
 	natsURL := os.Getenv("NATS_URL")
 	if natsURL == "" {
 		natsURL = "nats://nats.serverless-platform.svc.cluster.local:4222"
@@ -61,6 +67,7 @@ func Load() *Config {
 		PlatformNS:    platformNS,
 		DatabaseDSN:   os.Getenv("DATABASE_DSN"),
 		PrometheusURL: prometheusURL,
+		LokiURL:       lokiURL,
 		JWTExpiry:     24 * time.Hour,
 		CORSOrigins:   corsOrigins,
 		NatsURL:       natsURL,

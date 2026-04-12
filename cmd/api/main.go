@@ -122,6 +122,7 @@ func main() {
 	functionHandler := handler.NewFunctionHandler(svc, cacheStore)
 	deploymentHandler := handler.NewDeploymentHandler(database)
 	metricsHandler := handler.NewMetricsHandler(cfg.PrometheusURL)
+	logsHandler := handler.NewLogsHandler(cfg.LokiURL, cfg.PlatformNS, database)
 
 	r := chi.NewRouter()
 	r.Use(tracing.HTTP)
@@ -160,12 +161,19 @@ func main() {
 		// Workspace-scoped routes
 		r.Group(func(r chi.Router) {
 			r.Use(auth.WorkspaceRequired)
-			r.Use(customMiddleware.Cache(cacheStore, 30*time.Second))
-			r.Mount("/api/v1/functions", functionHandler.Routes(metricsHandler))
-			r.Mount("/api/v1/workspace", workspaceHandler.OwnerRoutes())
-			r.Get("/api/v1/deploys/{id}", deploymentHandler.Get)
-			r.Get("/api/v1/functions/{name}/deploys", deploymentHandler.ListByFunction)
-			r.Get("/api/v1/metrics/query_range", metricsHandler.QueryRange)
+
+			// Cached sub-group: idempotent GETs safe to serve from the cache.
+			r.Group(func(r chi.Router) {
+				r.Use(customMiddleware.Cache(cacheStore, 30*time.Second))
+				r.Mount("/api/v1/functions", functionHandler.Routes(metricsHandler))
+				r.Mount("/api/v1/workspace", workspaceHandler.OwnerRoutes())
+				r.Get("/api/v1/deploys/{id}", deploymentHandler.Get)
+				r.Get("/api/v1/functions/{name}/deploys", deploymentHandler.ListByFunction)
+				r.Get("/api/v1/metrics/query_range", metricsHandler.QueryRange)
+			})
+
+			// Streaming sub-group: SSE responses must not be cached or buffered.
+			r.Get("/api/v1/logs/stream", logsHandler.Stream)
 		})
 	})
 
