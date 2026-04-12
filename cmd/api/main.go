@@ -123,6 +123,7 @@ func main() {
 	deploymentHandler := handler.NewDeploymentHandler(database)
 	metricsHandler := handler.NewMetricsHandler(cfg.PrometheusURL)
 	logsHandler := handler.NewLogsHandler(cfg.LokiURL, cfg.PlatformNS, database)
+	deployEventsHandler := handler.NewDeployEventsHandler(database, natsClient.JetStream())
 
 	r := chi.NewRouter()
 	r.Use(tracing.HTTP)
@@ -174,6 +175,7 @@ func main() {
 
 			// Streaming sub-group: SSE responses must not be cached or buffered.
 			r.Get("/api/v1/logs/stream", logsHandler.Stream)
+			r.Get("/api/v1/deploys/{id}/events", deployEventsHandler.Stream)
 		})
 	})
 
