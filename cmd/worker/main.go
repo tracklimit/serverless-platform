@@ -81,8 +81,16 @@ func main() {
 	go func() {
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", promhttp.Handler())
+		metricsServer := &http.Server{
+			Addr:              ":9090",
+			Handler:           mux,
+			ReadHeaderTimeout: 5 * time.Second,
+			ReadTimeout:       10 * time.Second,
+			WriteTimeout:      10 * time.Second,
+			IdleTimeout:       60 * time.Second,
+		}
 		slog.Info("starting metrics server", "port", "9090")
-		if err := http.ListenAndServe(":9090", mux); err != nil {
+		if err := metricsServer.ListenAndServe(); err != nil {
 			slog.Error("metrics server error", "error", err)
 		}
 	}()
