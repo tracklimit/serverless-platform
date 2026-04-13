@@ -159,24 +159,30 @@ func main() {
 			r.Mount("/api/v1/workspaces", workspaceHandler.AdminRoutes())
 		})
 
-		// Workspace-scoped routes
+		// Workspace-scoped, cached sub-group: idempotent GETs safe to serve
+		// from the cache.
 		r.Group(func(r chi.Router) {
 			r.Use(auth.WorkspaceRequired)
-
-			// Cached sub-group: idempotent GETs safe to serve from the cache.
-			r.Group(func(r chi.Router) {
-				r.Use(customMiddleware.Cache(cacheStore, 30*time.Second))
-				r.Mount("/api/v1/functions", functionHandler.Routes(metricsHandler))
-				r.Mount("/api/v1/workspace", workspaceHandler.OwnerRoutes())
-				r.Get("/api/v1/deploys/{id}", deploymentHandler.Get)
-				r.Get("/api/v1/functions/{name}/deploys", deploymentHandler.ListByFunction)
-				r.Get("/api/v1/metrics/query_range", metricsHandler.QueryRange)
-			})
-
-			// Streaming sub-group: SSE responses must not be cached or buffered.
-			r.Get("/api/v1/logs/stream", logsHandler.Stream)
-			r.Get("/api/v1/deploys/{id}/events", deployEventsHandler.Stream)
+			r.Use(customMiddleware.Cache(cacheStore, 30*time.Second))
+			r.Mount("/api/v1/functions", functionHandler.Routes(metricsHandler))
+			r.Mount("/api/v1/workspace", workspaceHandler.OwnerRoutes())
+			r.Get("/api/v1/deploys/{id}", deploymentHandler.Get)
+			r.Get("/api/v1/functions/{name}/deploys", deploymentHandler.ListByFunction)
+			r.Get("/api/v1/metrics/query_range", metricsHandler.QueryRange)
 		})
+	})
+
+	// SSE routes live in their own auth group because browsers can't set
+	// Authorization on EventSource — MiddlewareSSE accepts a query-param
+	// token and scrubs it from r.URL. SSEConnectionLimit caps concurrent
+	// streams per user to bound goroutine lifetime risk.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.MiddlewareSSE(tokenService))
+		r.Use(customMiddleware.RateLimit(limiter))
+		r.Use(auth.WorkspaceRequired)
+		r.Use(customMiddleware.SSEConnectionLimit(3))
+		r.Get("/api/v1/logs/stream", logsHandler.Stream)
+		r.Get("/api/v1/deploys/{id}/events", deployEventsHandler.Stream)
 	})
 
 	server := &http.Server{
