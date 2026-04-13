@@ -8,16 +8,16 @@ import (
 )
 
 type Deployment struct {
-	ID              int64
-	FunctionID      int64
-	FunctionName    string
-	WorkspaceID     int64
-	Status          string
-	KnativeRevision string
-	Error           string
-	CreatedAt       time.Time
-	StartedAt       *time.Time
-	CompletedAt     *time.Time
+	ID              int64      `json:"id"`
+	FunctionID      int64      `json:"function_id"`
+	FunctionName    string     `json:"function_name"`
+	WorkspaceID     int64      `json:"workspace_id"`
+	Status          string     `json:"status"`
+	KnativeRevision string     `json:"knative_revision"`
+	Error           string     `json:"error,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	StartedAt       *time.Time `json:"started_at,omitempty"`
+	CompletedAt     *time.Time `json:"completed_at,omitempty"`
 }
 
 func (d *DB) CreateDeployment(ctx context.Context, functionID, workspaceID int64) (*Deployment, error) {
