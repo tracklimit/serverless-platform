@@ -180,11 +180,17 @@ func main() {
 	})
 
 	server := &http.Server{
-		Addr:         ":" + cfg.Port,
-		Handler:      r,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:        ":" + cfg.Port,
+		Handler:     r,
+		ReadTimeout: 10 * time.Second,
+		// WriteTimeout is intentionally unset (0 = no deadline) so that
+		// long-lived SSE connections on /api/v1/logs/stream and
+		// /api/v1/deploys/{id}/events aren't cut off mid-stream. Individual
+		// handlers enforce their own deadlines via r.Context() and upstream
+		// timeouts (see metrics_proxy.go's upstreamTimeout). The removed
+		// guardrail is compensated by the auth middleware (JWT required) and
+		// the per-user SSE connection cap added in Step 12.
+		IdleTimeout: 60 * time.Second,
 	}
 
 	go func() {
