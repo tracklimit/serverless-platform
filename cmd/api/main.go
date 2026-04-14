@@ -111,7 +111,7 @@ func main() {
 
 	natsPublisher := natspkg.NewPublisher(natsClient)
 	dep := deployer.NewKnativeDeployer(kubeClient, servingClient, cfg.PlatformNS)
-	svc := service.NewFunctionService(database, dep, natsPublisher, logger)
+	svc := service.NewFunctionService(database, dep, natsPublisher, logger, cfg.PublicBaseURL)
 	cacheStore := cache.NewNoOpStore()
 	limiter := ratelimit.NewInMemoryLimiter(60, time.Minute)
 

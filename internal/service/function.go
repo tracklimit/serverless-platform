@@ -13,19 +13,44 @@ import (
 )
 
 type FunctionService struct {
-	db        *db.DB
-	deployer  *deployer.KnativeDeployer
-	publisher *natspkg.Publisher
-	logger    *slog.Logger
+	db            *db.DB
+	deployer      *deployer.KnativeDeployer
+	publisher     *natspkg.Publisher
+	logger        *slog.Logger
+	publicBaseURL string
 }
 
-func NewFunctionService(database *db.DB, dep *deployer.KnativeDeployer, pub *natspkg.Publisher, logger *slog.Logger) *FunctionService {
+func NewFunctionService(database *db.DB, dep *deployer.KnativeDeployer, pub *natspkg.Publisher, logger *slog.Logger, publicBaseURL string) *FunctionService {
 	return &FunctionService{
-		db:        database,
-		deployer:  dep,
-		publisher: pub,
-		logger:    logger,
+		db:            database,
+		deployer:      dep,
+		publisher:     pub,
+		logger:        logger,
+		publicBaseURL: publicBaseURL,
 	}
+}
+
+// publicInvokeURL returns the externally advertised URL for a public
+// function, or empty string for private functions or when no public base
+// URL is configured. The pattern is intentionally distinct from the
+// authenticated proxy endpoint (/api/v1/functions/{name}/invoke) — that
+// path requires a workspace JWT and is only useful to authenticated
+// console users. A public function URL must be callable anonymously from
+// outside the platform, so it lives under /fn/{workspace}/{name} where
+// the workspace slug disambiguates tenants.
+//
+// The cluster-internal Knative URL the deployer reports is never returned
+// to the client; it isn't reachable from outside the cluster and would
+// mislead users into trying to call it directly.
+func (s *FunctionService) publicInvokeURL(ctx context.Context, fn *model.Function) string {
+	if !fn.Public || s.publicBaseURL == "" {
+		return ""
+	}
+	workspace := auth.WorkspaceSlugFromContext(ctx)
+	if workspace == "" {
+		return ""
+	}
+	return s.publicBaseURL + "/fn/" + workspace + "/" + fn.Name
 }
 
 func (s *FunctionService) namespace(ctx context.Context) string {
@@ -120,8 +145,8 @@ func (s *FunctionService) Get(ctx context.Context, name string) (*model.Function
 	fn := dbFunctionToModel(dbFn)
 	if kFn, _ := s.deployer.Get(ctx, s.namespace(ctx), name); kFn != nil {
 		fn.Status = kFn.Status
-		fn.URL = kFn.URL
 	}
+	fn.URL = s.publicInvokeURL(ctx, fn)
 	return fn, nil
 }
 
@@ -160,8 +185,8 @@ func (s *FunctionService) List(ctx context.Context, params ListParams) ([]*model
 		fn := dbFunctionToModel(f)
 		if ksvc, err := s.deployer.Get(ctx, ns, f.Name); err == nil && ksvc != nil {
 			fn.Status = ksvc.Status
-			fn.URL = ksvc.URL
 		}
+		fn.URL = s.publicInvokeURL(ctx, fn)
 		functions = append(functions, fn)
 	}
 

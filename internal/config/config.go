@@ -18,6 +18,12 @@ type Config struct {
 	NatsURL       string
 	NatsToken     string
 	OTLPEndpoint  string
+	// PublicBaseURL is the externally reachable origin of the API gateway
+	// (e.g. "https://console.codeforge.life"). Used to construct the
+	// public invocation URL advertised to users for public functions.
+	// Empty in local development; the UI falls back to "URL is being
+	// assigned" when blank.
+	PublicBaseURL string
 }
 
 func Load() *Config {
@@ -73,5 +79,6 @@ func Load() *Config {
 		NatsURL:       natsURL,
 		NatsToken:     os.Getenv("NATS_TOKEN"),
 		OTLPEndpoint:  otlpEndpoint,
+		PublicBaseURL: strings.TrimRight(os.Getenv("PUBLIC_BASE_URL"), "/"),
 	}
 }
