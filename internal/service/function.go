@@ -290,6 +290,38 @@ func (s *FunctionService) InvokeURL(ctx context.Context, name string) string {
 	return s.deployer.InvokeURL(s.namespace(ctx), name)
 }
 
+// GetPublic looks up a function by (workspaceSlug, name) for the unauthenticated
+// public-invoke route. It deliberately collapses "not found" and "exists but
+// private" into the same nil return so the handler can emit a single 404 for
+// both cases — leaking the existence of private functions to anonymous callers
+// would let them enumerate tenants by probing names.
+func (s *FunctionService) GetPublic(ctx context.Context, workspaceSlug, name string) (*model.Function, error) {
+	ws, err := s.db.GetWorkspaceBySlug(ctx, workspaceSlug)
+	if err != nil {
+		return nil, fmt.Errorf("get workspace: %w", err)
+	}
+	if ws == nil {
+		return nil, nil
+	}
+
+	dbFn, err := s.db.GetFunction(ctx, ws.ID, name)
+	if err != nil {
+		return nil, err
+	}
+	if dbFn == nil || !dbFn.Public {
+		return nil, nil
+	}
+
+	return dbFunctionToModel(dbFn), nil
+}
+
+// PublicInvokeTarget returns the cluster-internal Knative URL for a function
+// identified by workspace slug. Used by the anonymous /fn/{workspace}/{name}
+// proxy, which must construct the namespace without a workspace context.
+func (s *FunctionService) PublicInvokeTarget(workspaceSlug, name string) string {
+	return s.deployer.InvokeURL("fn-"+workspaceSlug, name)
+}
+
 func (s *FunctionService) Logs(ctx context.Context, name string, tail int64) (string, error) {
 	return s.deployer.Logs(ctx, s.namespace(ctx), name, tail)
 }

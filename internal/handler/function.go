@@ -168,6 +168,56 @@ func (h *FunctionHandler) Invoke(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(w, resp.Body)
 }
 
+// InvokePublic handles anonymous invocations at /fn/{workspace}/{name}. Unlike
+// Invoke, this route lives outside the auth middleware group — so the handler
+// itself enforces the public gate by calling GetPublic, which returns nil for
+// both missing and private functions. Any non-public function therefore looks
+// identical to a typo to an outside caller.
+//
+// The request method and body are forwarded verbatim to Knative so public
+// functions can expose whatever HTTP surface they want (GET, POST, webhooks,
+// etc.) without the platform imposing a verb.
+func (h *FunctionHandler) InvokePublic(w http.ResponseWriter, r *http.Request) {
+	workspace := chi.URLParam(r, "workspace")
+	name := chi.URLParam(r, "name")
+
+	fn, err := h.svc.GetPublic(r.Context(), workspace, name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if fn == nil {
+		writeError(w, http.StatusNotFound, "function not found")
+		return
+	}
+
+	targetURL := h.svc.PublicInvokeTarget(workspace, name)
+
+	proxyReq, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, r.Body) //nolint:gosec // targetURL is from deployer.InvokeURL, not user input
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create proxy request")
+		return
+	}
+	if ct := r.Header.Get("Content-Type"); ct != "" {
+		proxyReq.Header.Set("Content-Type", ct)
+	}
+
+	resp, err := http.DefaultClient.Do(proxyReq) //nolint:gosec // targetURL is from deployer.InvokeURL, not user input
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "function invocation failed: "+err.Error())
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	for key, values := range resp.Header {
+		for _, v := range values {
+			w.Header().Add(key, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
+}
+
 func (h *FunctionHandler) Logs(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 

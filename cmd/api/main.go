@@ -146,6 +146,14 @@ func main() {
 	r.Get("/readyz", healthHandler.Readyz)
 	r.Post("/api/v1/auth/login", authHandler.Login)
 
+	// Anonymous public-function invocation. Lives outside the auth group
+	// because these URLs are handed to external callers who cannot present a
+	// workspace JWT. HandleFunc accepts any HTTP method so functions can
+	// expose arbitrary HTTP surfaces (GET webhooks, POST APIs, etc.). The
+	// handler itself enforces the public gate and treats private or missing
+	// functions as 404 to avoid leaking existence.
+	r.HandleFunc("/fn/{workspace}/{name}", functionHandler.InvokePublic)
+
 	// Authenticated routes
 	r.Group(func(r chi.Router) {
 		r.Use(auth.Middleware(tokenService))
