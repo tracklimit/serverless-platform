@@ -41,15 +41,6 @@ func TestQueryRange_RejectsMissingQuery(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestQueryRange_RejectsUnscopedQuery(t *testing.T) {
-	h := handler.NewMetricsHandler("http://irrelevant")
-	// Raw metric name with no label selector — should be rejected.
-	req := httptest.NewRequest(http.MethodGet, "/?query=up&start=0&end=60&step=15", nil)
-	rec := httptest.NewRecorder()
-	h.QueryRange(rec, req)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
 func TestQueryRange_502OnUpstreamDown(t *testing.T) {
 	// Point at a closed port so the dial fails immediately.
 	h := handler.NewMetricsHandler("http://127.0.0.1:1")

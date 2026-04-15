@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 )
 
@@ -63,11 +62,6 @@ func validateQuery(q string) error {
 	}
 	if len(q) > maxQueryLen {
 		return errors.New("query too long")
-	}
-	// Reject raw metric names that have no label selector — forces the caller
-	// to include at least one matcher, reducing accidental full-scans.
-	if !strings.ContainsAny(q, "{|") {
-		return errors.New("query must include a label selector")
 	}
 	return nil
 }
