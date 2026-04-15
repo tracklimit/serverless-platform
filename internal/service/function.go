@@ -256,6 +256,7 @@ func (s *FunctionService) Update(ctx context.Context, name string, req *model.Up
 
 	fn := dbFunctionToModel(updatedFn)
 	fn.Status = model.StatusPending
+	fn.URL = s.publicInvokeURL(ctx, fn)
 
 	deployment := &model.Deployment{
 		ID:         dep.ID,
