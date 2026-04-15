@@ -124,10 +124,10 @@ func (h *FunctionHandler) Update(w http.ResponseWriter, r *http.Request) {
 	workspace := auth.WorkspaceSlugFromContext(r.Context())
 	_ = h.cache.Invalidate(r.Context(), "cache:"+workspace+":*")
 
-	writeJSON(w, http.StatusAccepted, map[string]any{
-		"function":   fn,
-		"deployment": deployment,
-	})
+	if deployment != nil {
+		w.Header().Set("X-Deployment-Id", strconv.FormatInt(deployment.ID, 10))
+	}
+	writeJSON(w, http.StatusAccepted, fn)
 }
 
 func (h *FunctionHandler) Invoke(w http.ResponseWriter, r *http.Request) {
