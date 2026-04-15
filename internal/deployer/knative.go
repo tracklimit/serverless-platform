@@ -3,6 +3,8 @@ package deployer
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
@@ -24,7 +26,8 @@ const (
 	labelRuntime    = "platform.tracklimit.io/runtime"
 	labelDeployType = "platform.tracklimit.io/deploy-type"
 
-	annotationVisibility = "networking.knative.dev/visibility"
+	annotationVisibility  = "networking.knative.dev/visibility"
+	annotationContentHash = "platform.tracklimit.io/content-hash"
 )
 
 type KnativeDeployer struct {
@@ -344,6 +347,16 @@ func (d *KnativeDeployer) buildService(namespace string, fn *model.Function, svc
 		Spec: servingv1.ServiceSpec{
 			ConfigurationSpec: servingv1.ConfigurationSpec{
 				Template: servingv1.RevisionTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							// Managed-function code is mounted via a ConfigMap volume,
+							// so the PodSpec is identical across code updates and Knative
+							// would not roll a new Revision. Stamp a content hash on the
+							// template so every code/image change produces a fresh
+							// revision and retires the in-memory handler from the old pod.
+							annotationContentHash: contentHash(fn),
+						},
+					},
 					Spec: servingv1.RevisionSpec{
 						PodSpec: podSpec,
 					},
@@ -351,6 +364,14 @@ func (d *KnativeDeployer) buildService(namespace string, fn *model.Function, svc
 			},
 		},
 	}
+}
+
+func contentHash(fn *model.Function) string {
+	h := sha256.New()
+	h.Write([]byte(fn.Code))
+	h.Write([]byte{0})
+	h.Write([]byte(fn.Image))
+	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
 func (d *KnativeDeployer) basePodSpec(fn *model.Function) corev1.PodSpec {
