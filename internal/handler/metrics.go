@@ -35,14 +35,14 @@ type MetricsResponse struct {
 
 func (h *MetricsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	svcName := "fn-" + name
+	workspace := auth.WorkspaceSlugFromContext(r.Context())
 
 	end := time.Now()
 	start := end.Add(-1 * time.Hour)
 	step := "60"
 
 	requestRate, err := h.queryRange(r.Context(),
-		fmt.Sprintf(`sum(rate(kn_serving_invocation_duration_seconds_count{kn_service_name="%s"}[2m]))`, svcName),
+		fmt.Sprintf(`sum(rate(platform_function_invocations_total{workspace="%s",function="%s"}[2m]))`, workspace, name),
 		start, end, step,
 	)
 	if err != nil {
@@ -51,7 +51,7 @@ func (h *MetricsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	latencyP99, err := h.queryRange(r.Context(),
-		fmt.Sprintf(`histogram_quantile(0.99, sum(rate(kn_serving_invocation_duration_seconds_bucket{kn_service_name="%s"}[2m])) by (le))`, svcName),
+		fmt.Sprintf(`histogram_quantile(0.99, sum(rate(platform_function_invocation_duration_seconds_bucket{workspace="%s",function="%s"}[2m])) by (le))`, workspace, name),
 		start, end, step,
 	)
 	if err != nil {
@@ -65,14 +65,14 @@ func (h *MetricsHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *MetricsHandler) GetWorkspace(w http.ResponseWriter, r *http.Request) {
-	ns := "fn-" + auth.WorkspaceSlugFromContext(r.Context())
+	workspace := auth.WorkspaceSlugFromContext(r.Context())
 
 	end := time.Now()
 	start := end.Add(-1 * time.Hour)
 	step := "60"
 
 	requestRate, err := h.queryRange(r.Context(),
-		fmt.Sprintf(`sum(rate(kn_serving_invocation_duration_seconds_count{namespace_name="%s"}[2m]))`, ns),
+		fmt.Sprintf(`sum(rate(platform_function_invocations_total{workspace="%s"}[2m]))`, workspace),
 		start, end, step,
 	)
 	if err != nil {
@@ -81,7 +81,7 @@ func (h *MetricsHandler) GetWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	latencyP99, err := h.queryRange(r.Context(),
-		fmt.Sprintf(`histogram_quantile(0.99, sum(rate(kn_serving_invocation_duration_seconds_bucket{namespace_name="%s"}[2m])) by (le))`, ns),
+		fmt.Sprintf(`histogram_quantile(0.99, sum(rate(platform_function_invocation_duration_seconds_bucket{workspace="%s"}[2m])) by (le))`, workspace),
 		start, end, step,
 	)
 	if err != nil {

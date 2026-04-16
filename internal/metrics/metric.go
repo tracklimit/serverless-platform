@@ -24,6 +24,25 @@ var (
 		[]string{"method", "path"},
 	)
 
+	// Function invocation metrics — recorded by the invoke proxy handlers so
+	// data persists across Knative scale-to-zero cycles.
+	FunctionInvocationsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "platform_function_invocations_total",
+			Help: "Total function invocations by workspace, function, and status code.",
+		},
+		[]string{"workspace", "function", "status_code"},
+	)
+
+	FunctionInvocationDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "platform_function_invocation_duration_seconds",
+			Help:    "Function invocation latency distribution.",
+			Buckets: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
+		},
+		[]string{"workspace", "function"},
+	)
+
 	// Deploy pipeline metrics — recorded by the worker.
 	DeployDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -47,14 +66,5 @@ var (
 			Help: "Total deploys by status.",
 		},
 		[]string{"status"},
-	)
-
-	// Platform gauges — recorded periodically or on change.
-	FunctionsTotal = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "platform_functions_total",
-			Help: "Current number of functions by runtime.",
-		},
-		[]string{"runtime"},
 	)
 )

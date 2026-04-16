@@ -4,14 +4,16 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"serverless-platform/internal/auth"
-	"serverless-platform/internal/cache"
-	"serverless-platform/internal/pagination"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"serverless-platform/internal/auth"
+	"serverless-platform/internal/cache"
+	"serverless-platform/internal/metrics"
 	"serverless-platform/internal/model"
+	"serverless-platform/internal/pagination"
 	"serverless-platform/internal/service"
 )
 
@@ -132,6 +134,7 @@ func (h *FunctionHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 func (h *FunctionHandler) Invoke(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
+	workspace := auth.WorkspaceSlugFromContext(r.Context())
 
 	fn, err := h.svc.Get(r.Context(), name)
 	if err != nil {
@@ -152,12 +155,19 @@ func (h *FunctionHandler) Invoke(w http.ResponseWriter, r *http.Request) {
 	}
 	proxyReq.Header.Set("Content-Type", r.Header.Get("Content-Type"))
 
+	start := time.Now()
 	resp, err := http.DefaultClient.Do(proxyReq) //nolint:gosec // targetURL is from deployer.InvokeURL, not user input
 	if err != nil {
+		metrics.FunctionInvocationsTotal.WithLabelValues(workspace, name, "502").Inc()
+		metrics.FunctionInvocationDuration.WithLabelValues(workspace, name).Observe(time.Since(start).Seconds())
 		writeError(w, http.StatusBadGateway, "function invocation failed: "+err.Error())
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
+
+	status := strconv.Itoa(resp.StatusCode)
+	metrics.FunctionInvocationsTotal.WithLabelValues(workspace, name, status).Inc()
+	metrics.FunctionInvocationDuration.WithLabelValues(workspace, name).Observe(time.Since(start).Seconds())
 
 	for key, values := range resp.Header {
 		for _, v := range values {
@@ -202,12 +212,19 @@ func (h *FunctionHandler) InvokePublic(w http.ResponseWriter, r *http.Request) {
 		proxyReq.Header.Set("Content-Type", ct)
 	}
 
+	start := time.Now()
 	resp, err := http.DefaultClient.Do(proxyReq) //nolint:gosec // targetURL is from deployer.InvokeURL, not user input
 	if err != nil {
+		metrics.FunctionInvocationsTotal.WithLabelValues(workspace, name, "502").Inc()
+		metrics.FunctionInvocationDuration.WithLabelValues(workspace, name).Observe(time.Since(start).Seconds())
 		writeError(w, http.StatusBadGateway, "function invocation failed: "+err.Error())
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
+
+	status := strconv.Itoa(resp.StatusCode)
+	metrics.FunctionInvocationsTotal.WithLabelValues(workspace, name, status).Inc()
+	metrics.FunctionInvocationDuration.WithLabelValues(workspace, name).Observe(time.Since(start).Seconds())
 
 	for key, values := range resp.Header {
 		for _, v := range values {
