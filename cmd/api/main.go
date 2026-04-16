@@ -122,7 +122,7 @@ func main() {
 	functionHandler := handler.NewFunctionHandler(svc, cacheStore)
 	deploymentHandler := handler.NewDeploymentHandler(database)
 	metricsHandler := handler.NewMetricsHandler(cfg.PrometheusURL)
-	logsHandler := handler.NewLogsHandler(cfg.LokiURL, cfg.PlatformNS, database)
+	logsHandler := handler.NewLogsHandler(cfg.LokiURL, database)
 	deployEventsHandler := handler.NewDeployEventsHandler(database, natsClient.JetStream())
 
 	r := chi.NewRouter()

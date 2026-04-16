@@ -22,16 +22,14 @@ type FunctionLookup interface {
 }
 
 type LogsHandler struct {
-	lokiURL    string
-	platformNS string
-	store      FunctionLookup
+	lokiURL string
+	store   FunctionLookup
 }
 
-func NewLogsHandler(lokiURL, platformNS string, store FunctionLookup) *LogsHandler {
+func NewLogsHandler(lokiURL string, store FunctionLookup) *LogsHandler {
 	return &LogsHandler{
-		lokiURL:    lokiURL,
-		platformNS: platformNS,
-		store:      store,
+		lokiURL: lokiURL,
+		store:   store,
 	}
 }
 
@@ -62,7 +60,8 @@ func (h *LogsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	level := r.URL.Query().Get("level")
 
 	// Cross-tenant guard: verify the function belongs to the caller's workspace.
-	ws, err := h.store.GetWorkspaceBySlug(r.Context(), auth.WorkspaceSlugFromContext(r.Context()))
+	wsSlug := auth.WorkspaceSlugFromContext(r.Context())
+	ws, err := h.store.GetWorkspaceBySlug(r.Context(), wsSlug)
 	if err != nil || ws == nil {
 		writeError(w, http.StatusInternalServerError, "failed to resolve workspace")
 		return
@@ -82,10 +81,13 @@ func (h *LogsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	// Knative creates pods named fn-{name}-{revision}-deployment-{hash}, so a
-	// regex anchored on the function name matches all revisions.
+	// Function pods run in the per-workspace namespace fn-{slug}, not in the
+	// platform API's own namespace. Knative names pods
+	// fn-{name}-{revision}-deployment-{hash}, so a regex anchored on the
+	// function name matches all revisions.
+	fnNamespace := "fn-" + wsSlug
 	podPattern := fmt.Sprintf("fn-%s-.*", regexp.QuoteMeta(fn))
-	selector := fmt.Sprintf(`{namespace=%q, pod=~%q}`, h.platformNS, podPattern)
+	selector := fmt.Sprintf(`{namespace=%q, pod=~%q}`, fnNamespace, podPattern)
 
 	// Level filter uses the JSON parser so it works even for pods whose log
 	// level isn't promoted to a stream label (Alloy only promotes `level` when
