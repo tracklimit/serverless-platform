@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"serverless-platform/internal/auth"
 )
 
 type MetricsHandler struct {
@@ -50,6 +52,36 @@ func (h *MetricsHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	latencyP99, err := h.queryRange(r.Context(),
 		fmt.Sprintf(`histogram_quantile(0.99, sum(rate(kn_serving_invocation_duration_seconds_bucket{kn_service_name="%s"}[2m])) by (le))`, svcName),
+		start, end, step,
+	)
+	if err != nil {
+		latencyP99 = []*DataPoint{}
+	}
+
+	writeJSON(w, http.StatusOK, MetricsResponse{
+		RequestRate: requestRate,
+		LatencyP99:  latencyP99,
+	})
+}
+
+func (h *MetricsHandler) GetWorkspace(w http.ResponseWriter, r *http.Request) {
+	ns := "fn-" + auth.WorkspaceSlugFromContext(r.Context())
+
+	end := time.Now()
+	start := end.Add(-1 * time.Hour)
+	step := "60"
+
+	requestRate, err := h.queryRange(r.Context(),
+		fmt.Sprintf(`sum(rate(kn_serving_invocation_duration_seconds_count{namespace_name="%s"}[2m]))`, ns),
+		start, end, step,
+	)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to query metrics: "+err.Error())
+		return
+	}
+
+	latencyP99, err := h.queryRange(r.Context(),
+		fmt.Sprintf(`histogram_quantile(0.99, sum(rate(kn_serving_invocation_duration_seconds_bucket{namespace_name="%s"}[2m])) by (le))`, ns),
 		start, end, step,
 	)
 	if err != nil {
