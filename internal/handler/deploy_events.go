@@ -25,11 +25,10 @@ func NewDeployEventsHandler(db DeploymentStore, js jetstream.JetStream) *DeployE
 // Stream opens an SSE connection and forwards deploy status events for a single deployment.
 // GET /api/v1/deploys/{id}/events
 func (h *DeployEventsHandler) Stream(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeError(w, http.StatusInternalServerError, "streaming unsupported")
-		return
-	}
+	// Use ResponseController so flushing works through the middleware chain
+	// (tracing, metrics, RequestID, Logger, Recoverer). A direct type assertion
+	// on w fails once any of those wrap the ResponseWriter.
+	rc := http.NewResponseController(w)
 
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
@@ -64,7 +63,7 @@ func (h *DeployEventsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		_, _ = fmt.Fprintf(w, ": nats subscribe error: %s\n\n", err.Error())
-		flusher.Flush()
+		_ = rc.Flush()
 		return
 	}
 
@@ -96,7 +95,7 @@ func (h *DeployEventsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 
 		data, _ := json.Marshal(ev)
 		_, _ = fmt.Fprintf(w, "event: status\ndata: %s\n\n", data)
-		flusher.Flush()
+		_ = rc.Flush()
 
 		if ev.Status == "RUNNING" || ev.Status == "FAILED" {
 			return // terminal state

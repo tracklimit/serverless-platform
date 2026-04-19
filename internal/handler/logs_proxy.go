@@ -46,11 +46,10 @@ type logLine struct {
 // workspace before any Loki query runs. Cross-tenant access returns 404 (not
 // 403) to avoid leaking whether a function exists in another workspace.
 func (h *LogsHandler) Stream(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeError(w, http.StatusInternalServerError, "streaming unsupported")
-		return
-	}
+	// Use ResponseController so flushing works through the middleware chain
+	// (tracing, metrics, RequestID, Logger, Recoverer). A direct type assertion
+	// on w fails once any of those wrap the ResponseWriter.
+	rc := http.NewResponseController(w)
 
 	fn := r.URL.Query().Get("function")
 	if fn == "" {
@@ -117,7 +116,7 @@ func (h *LogsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 				// The stream stays open so the client sees logs resume as
 				// soon as Loki recovers.
 				_, _ = fmt.Fprintf(w, ": upstream error: %s\n\n", err.Error())
-				flusher.Flush()
+				_ = rc.Flush()
 				since = now
 				continue
 			}
@@ -125,7 +124,7 @@ func (h *LogsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 				data, _ := json.Marshal(l)
 				_, _ = fmt.Fprintf(w, "event: log\ndata: %s\n\n", data)
 			}
-			flusher.Flush()
+			_ = rc.Flush()
 			since = now
 		}
 	}
