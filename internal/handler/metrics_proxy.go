@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"serverless-platform/internal/auth"
 )
 
 const (
@@ -23,8 +25,16 @@ func (h *MetricsHandler) QueryRange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Pin every vector selector in the user's PromQL to the caller's workspace,
+	// so one tenant can never read another tenant's series.
+	scoped, err := injectWorkspace(query, auth.WorkspaceSlugFromContext(r.Context()))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	params := url.Values{}
-	params.Set("query", query)
+	params.Set("query", scoped)
 	params.Set("start", r.URL.Query().Get("start"))
 	params.Set("end", r.URL.Query().Get("end"))
 	params.Set("step", r.URL.Query().Get("step"))
